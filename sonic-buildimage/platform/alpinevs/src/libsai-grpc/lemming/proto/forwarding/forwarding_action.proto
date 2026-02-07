@@ -1,0 +1,201 @@
+// Copyright 2022 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Protocol buffers to manage forwarding actions.
+syntax = "proto3";
+
+package forwarding;
+
+import "proto/forwarding/forwarding_common.proto";
+
+option go_package = "github.com/openconfig/lemming/proto/forwarding";
+
+// An ActionType enumerates all supported forwarding actions.
+enum ActionType {
+  ACTION_TYPE_UNSPECIFIED = 0;  // Unspecified action
+  ACTION_TYPE_DROP = 1;         // Drop packets.
+  ACTION_TYPE_TRANSMIT = 2;     // Transmit packets on a specific port
+  ACTION_TYPE_LOOKUP = 3;       // Lookup a table to decide next action
+  ACTION_TYPE_RATE = 4;         // Ratelimit the packet and continue
+  ACTION_TYPE_ENCAP = 5;        // Add a packet header and continue
+  ACTION_TYPE_DECAP = 6;        // Remove a packet header and continue
+  ACTION_TYPE_UPDATE = 8;       // Update a packet field
+  ACTION_TYPE_TEST = 9;         // Action used to write tests
+  ACTION_TYPE_CONTINUE = 10;    // Action used to continue processing the packet
+  ACTION_TYPE_OUTPUT = 11;      // Action used to evaluate packet processing
+  ACTION_TYPE_MIRROR = 12;      // Action used to mirror a packet
+  ACTION_TYPE_EVALUATE = 13;    // Action used to evaluate all pending actions
+  ACTION_TYPE_BRIDGE_LEARN =
+      14;  // Action used to learn on the specified bridge
+  ACTION_TYPE_FLOW_COUNTER =
+      15;                    // Action used to increment the per-flow counter
+  ACTION_TYPE_REPARSE = 16;  // Reparses the packet as a specific type of header
+  ACTION_TYPE_SELECT_ACTION_LIST =
+      17;  // Action used select a action list from a set of action lists
+  ACTION_TYPE_DEBUG = 18;  // Action used to set the debug flag on a packet
+  ACTION_TYPE_SWAP_OUTPUT_INTERNAL_EXTERNAL =
+      19;  // Ation used to set a packet's output port
+           // to the input port's corresponding internal or external port.
+}
+
+// An ActionDesc describes an operation that can be performed on a packet.
+// It is assumed that the desc will contain the appropriate values in the oneof.
+//
+// Actions that are marked on evaluate are executed only when the evaluate
+// action is processed.
+message ActionDesc {
+  ActionType action_type = 1;
+  bool on_evaluate = 2;
+  oneof action {
+    TransmitActionDesc transmit = 3;
+    LookupActionDesc lookup = 4;
+    RateActionDesc rate = 5;
+    EncapActionDesc encap = 6;
+    DecapActionDesc decap = 7;
+    UpdateActionDesc update = 8;
+    TestActionDesc test = 9;
+    MirrorActionDesc mirror = 10;
+    BridgeLearnActionDesc bridge = 11;
+    FlowCounterActionDesc flow = 12;
+    ReparseActionDesc reparse = 13;
+    SelectActionListActionDesc select = 14;
+  };
+}
+
+// A TransmitActionDesc describes TRANSMIT_ACTION. The descriptor contains a
+// port-id that identifies the port used to transmit the packet. The transmit
+// action can be marked to be effective immediately in which case it cannot
+// be overriden.
+message TransmitActionDesc {
+  PortId port_id = 1;  // Port used for transmitting.
+  bool immediate = 2;  // True if it is effective immediately..
+}
+
+// A LookupActionDesc describes LOOKUP_ACTION. The descriptor contains a
+// table-id that identifies a table that is used to look up the packet to
+// determine the next set of actions.
+message LookupActionDesc {
+  TableId table_id = 1;  // Table used for lookup.
+}
+
+// A RateActionDesc describes RATELIMIT_ACTION. The descriptor contains a burst
+// size and a rate that is applied to check if the packet should continue to the
+// next action.
+message RateActionDesc {
+  int32 burst_bytes = 1;  // Size of bursts in bytes.
+  int32 rate_bps = 2;     // Rate in bytes per second.
+}
+
+// An EncapActionDesc describes ENCAP_ACTION. The descriptor contains a
+// header-id and a series of bytes that are added to the packet.
+message EncapActionDesc {
+  PacketHeaderId header_id = 1;  // Header to add.
+}
+
+// A DecapActionDesc describes DECAP_ACTION. The descriptor identifies the
+// header that is removed from the packet. Note that when the packet has
+// multiple instance of the specified header, the outermost instance is always
+// removed.
+message DecapActionDesc {
+  PacketHeaderId header_id = 1;  // Header to remove.
+}
+
+// A BridgeLearnAction describes BRIDGE_LEARN_ACTION. The descriptor contains a
+// table-id that identifies a table that is used to learn the packet.
+message BridgeLearnActionDesc {
+  TableId table_id = 1;  // Table used for learning.
+}
+
+// An UpdateType enumerates all supported forwarding updates.
+enum UpdateType {
+  UPDATE_TYPE_UNSPECIFIED = 0;
+  UPDATE_TYPE_SET = 1;        // Set a packet field.
+  UPDATE_TYPE_INC = 2;        // Increment a packet field.
+  UPDATE_TYPE_DEC = 3;        // Decrement a packet field.
+  UPDATE_TYPE_COPY = 4;       // Copy a field.
+  UPDATE_TYPE_BIT_WRITE = 5;  // Writes a set of bits in a packet field.
+  UPDATE_TYPE_BIT_AND = 6;    // Performs a bitwise 'and' operation on a field.
+  UPDATE_TYPE_BIT_OR = 7;     // Performs a bitwise 'or' operation on a field.
+}
+
+// A UpdateActionDesc describes UPDATE_ACTION. The descriptor identifies a
+// change to a packet field.
+message UpdateActionDesc {
+  PacketFieldId field_id = 1;  // Packet field.
+  UpdateType type = 2;         // Update type.
+  bytes value = 3;             // Values used for set, dec, and, or and inc.
+  PacketFieldId field = 4;     // Value used for copy.
+  uint32 bit_offset = 5;  // Offset in bits to update (used for bit update).
+  uint32 bit_count = 6;   // Number of bits to update (used for bit update).
+}
+
+// A TestActionDesc describes a TEST_ACTION.
+message TestActionDesc {
+  uint32 int1 = 1;
+  bytes bytes1 = 2;
+}
+
+// A MirrorActionDesc describes a MIRROR_ACTION. It mirrors the packet and
+// applies the specified actions to the mirrored packet. If specified, the
+// packet is then transmitted using the specified port and port action.
+message MirrorActionDesc {
+  repeated ActionDesc actions = 3;  // Actions applied to the mirrored packet
+  PortId port_id = 1;               // Port used for mirroring
+  PortAction port_action = 2;       // Indicates how the packet is injected
+  repeated PacketFieldId field_ids = 4;  // Packet fields to restore
+}
+
+// A FlowCounterActionDesc describes a FLOW_COUNTER_ACTION. It increments the
+// per flow counter associated with this row; the id of the counter is
+// specified.
+message FlowCounterActionDesc {
+  FlowCounterId counter_id = 1;
+}
+
+// A ReparseActionDesc describes a REPARSE_ACTION. It reparses the current
+// packet to start from the specified packet header id. Optionally it can
+// also propagate some packet fields from the old packet to the newly formed
+// packet, and prepend bytes to the start of the packet before prepending.
+message ReparseActionDesc {
+  PacketHeaderId header_id = 1;          // Header to reparse
+  repeated PacketFieldId field_ids = 2;  // Packet fields to restore
+  bytes prepend = 3;  // Bytes to be prepended before reparsing
+}
+
+// An ActionList describes a sequence of actions.
+message ActionList {
+  repeated ActionDesc actions = 1;
+  uint64 weight = 2;
+}
+
+// A SelectActionListActionDesc describes a SELECT_ACTION_LIST_ACTION.
+// It is an action that selects an action list to execute from a set
+// of action lists. The selection is done by using a hash on the
+// specified packet fields.
+message SelectActionListActionDesc {
+  // SelectAlgorithm enumerates algorithms used to compute the hash.
+  enum SelectAlgorithm {
+    SELECT_ALGORITHM_UNSPECIFIED = 0;
+    SELECT_ALGORITHM_CRC16 = 2;  // x16+x15+x2+1
+    SELECT_ALGORITHM_CRC32 =
+        3;  // x32+x26+x23+x22+x16+x12+x11+x10+x8+x7+x5+x4+x2+x+1
+    SELECT_ALGORITHM_RANDOM = 5;  // Selects a random action list
+  }
+
+  SelectAlgorithm select_algorithm =
+      1;  // Algorithm used to select an action list
+  repeated PacketFieldId field_ids = 2;  // List of fields to use for hashing
+  repeated ActionList action_lists =
+      3;  // A set of action lists from an an action list is selected
+}

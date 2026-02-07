@@ -1,0 +1,10 @@
+#!/bin/sh
+# postinst script for sonic-platform-dbmvtx9180
+#
+# see: dh_installdeb(1)
+
+depmod -a
+systemctl restart kmod
+systemctl enable pddf-platform-init.service
+systemctl start pddf-platform-init.service
+exit 0

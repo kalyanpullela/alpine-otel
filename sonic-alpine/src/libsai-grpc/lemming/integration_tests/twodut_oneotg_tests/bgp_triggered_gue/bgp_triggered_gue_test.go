@@ -1,0 +1,1117 @@
+/*
+ Copyright 2022 Google LLC
+
+ Licensed under the Apache License, Version 2.0 (the "License");
+ you may not use this file except in compliance with the License.
+ You may obtain a copy of the License at
+
+      https://www.apache.org/licenses/LICENSE-2.0
+
+ Unless required by applicable law or agreed to in writing, software
+ distributed under the License is distributed on an "AS IS" BASIS,
+ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ See the License for the specific language governing permissions and
+ limitations under the License.
+*/
+
+package integration_test
+
+import (
+	"context"
+	"net"
+	"net/netip"
+	"os"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/go-cmp/cmp"
+	"github.com/google/go-cmp/cmp/cmpopts"
+	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
+	"github.com/google/gopacket/pcapgo"
+	"github.com/open-traffic-generator/snappi/gosnappi"
+	"github.com/openconfig/gribigo/chk"
+	"github.com/openconfig/gribigo/client"
+	"github.com/openconfig/gribigo/constants"
+	"github.com/openconfig/gribigo/fluent"
+	"github.com/openconfig/ondatra"
+	"github.com/openconfig/ondatra/gnmi"
+	otgtelemetry "github.com/openconfig/ondatra/gnmi/otg"
+	"github.com/openconfig/ondatra/gnmi/otg/otgpath"
+	"github.com/openconfig/ondatra/otg"
+	"github.com/openconfig/ygnmi/ygnmi"
+	"github.com/openconfig/ygot/ygot"
+
+	"github.com/openconfig/lemming/gnmi/fakedevice"
+	"github.com/openconfig/lemming/gnmi/oc"
+	"github.com/openconfig/lemming/gnmi/oc/ocpath"
+	"github.com/openconfig/lemming/internal/attrs"
+	"github.com/openconfig/lemming/internal/binding"
+
+	gribipb "github.com/openconfig/gribi/v1/proto/service"
+)
+
+// Settings for configuring the baseline testbed with the test
+// topology.
+//
+// The testbed consists of,
+//
+//   - ate:port1 -> dut:port1 subnet 192.0.2.0/30
+//   - ate:port2 -> dut:port2 subnet 192.0.2.4/30
+//   - ate:port3 -> dut2:port1 subnet 203.0.113.0/30
+//   - dut:port3 -> dut2:port2 subnet 192.1.2.8/30
+const (
+	ipv4PrefixLen       = 30
+	ipv6PrefixLen       = 99
+	ateDstNetCIDR1      = "198.51.0.0/24"
+	ateDstNetCIDR2      = "198.51.2.0/24"
+	ateDstNetCIDR3      = "198.51.4.0/24"
+	ateIndirectNH1      = "203.0.113.1"
+	ateIndirectNH2      = "203.0.113.5"
+	ateIndirectNH3      = "203.0.113.9"
+	ateIndirectNHCIDR   = "203.0.113.0/24"
+	nhIndex1            = 1
+	nhIndex2            = 2
+	nhIndex3            = 3
+	nhgIndex1           = 42
+	nhgIndex2           = 43
+	nhgIndex3           = 44
+	ateDstNetCIDR1v6    = "2003:aaaa::/49"
+	ateDstNetCIDR2v6    = "2003:bbbb::/49"
+	ateDstNetCIDR3v6    = "2003:cccc::/49"
+	ateDstNetCIDR1v6MS  = "2003:aaaa::/50"
+	ateDstNetCIDR2v6MS  = "2003:bbbb::/50"
+	ateDstNetCIDR3v6MS  = "2003:cccc::/50"
+	ateIndirectNH1v6    = "2002:0:0:0:10::"
+	ateIndirectNH2v6    = "2002:0:0:10::"
+	ateIndirectNH3v6    = "2002:0:10::"
+	ateIndirectNHCIDRv6 = "2002::/32"
+
+	dutAS  = 64500
+	dut2AS = 64500
+	ateAS  = 64502
+
+	// TODO: Debug why this test's loss is flaky.
+	lossTolerance = 20
+)
+
+func TestMain(m *testing.M) {
+	ondatra.RunTests(m, binding.KNE(".."))
+}
+
+var (
+	dutPort1 = attrs.Attributes{
+		Desc:    "dutPort1",
+		IPv4:    "192.0.2.1",
+		IPv4Len: ipv4PrefixLen,
+		IPv6:    "2001::aaaa:bbbb:aa",
+		IPv6Len: ipv6PrefixLen,
+	}
+
+	atePort1 = attrs.Attributes{
+		Name:    "port1",
+		MAC:     "02:00:01:01:01:01",
+		IPv4:    "192.0.2.2",
+		IPv4Len: ipv4PrefixLen,
+		IPv6:    "2001::aaaa:bbbb:bb",
+		IPv6Len: ipv6PrefixLen,
+	}
+
+	dutPort2 = attrs.Attributes{
+		Desc:    "dutPort2",
+		IPv4:    "192.0.2.5",
+		IPv4Len: ipv4PrefixLen,
+		IPv6:    "2001::aaab:bbbb:aa",
+		IPv6Len: ipv6PrefixLen,
+	}
+
+	atePort2 = attrs.Attributes{
+		Name:    "port2",
+		MAC:     "02:00:02:01:01:01",
+		IPv4:    "192.0.2.6",
+		IPv4Len: ipv4PrefixLen,
+		IPv6:    "2001::aaab:bbbb:bb",
+		IPv6Len: ipv6PrefixLen,
+	}
+
+	dutPort3 = attrs.Attributes{
+		Desc:    "dutPort3",
+		IPv4:    "192.0.2.9",
+		IPv4Len: ipv4PrefixLen,
+		IPv6:    "2001::aaac:bbbb:aa",
+		IPv6Len: ipv6PrefixLen,
+	}
+
+	atePort3 = attrs.Attributes{
+		Name:    "port3",
+		MAC:     "02:00:03:01:01:01",
+		IPv4:    ateIndirectNH3,
+		IPv4Len: 28,
+		IPv6:    ateIndirectNH3v6,
+		IPv6Len: 32,
+	}
+
+	dut2Port1 = attrs.Attributes{
+		Desc: "dut2Port1",
+		IPv4: "203.0.113.2",
+		// Make sure the ATE indirect prefixes that are to be exchanged
+		// to DUT1 are actually resolvable at DUT2.
+		IPv4Len: 28,
+		IPv6:    "2002::cc",
+		// Make sure the ATE indirect prefixes that are to be exchanged
+		// to DUT1 are actually resolvable at DUT2.
+		IPv6Len: 32,
+	}
+
+	dut2Port2 = attrs.Attributes{
+		Desc:    "dut2Port2",
+		IPv4:    "192.0.2.10",
+		IPv4Len: ipv4PrefixLen,
+		IPv6:    "2001::aaac:bbbb:bb",
+		IPv6Len: ipv6PrefixLen,
+	}
+)
+
+// configureOTG configures ports and other configurations on the OTG device.
+func configureOTG(t *testing.T, ate *ondatra.ATEDevice) gosnappi.Config {
+	t.Helper()
+	top := gosnappi.NewConfig()
+
+	p1 := ate.Port(t, "port1")
+	p2 := ate.Port(t, "port2")
+	p3 := ate.Port(t, "port3")
+
+	atePort1.AddToOTG(top, p1, &dutPort1)
+	atePort2.AddToOTG(top, p2, &dutPort2)
+	atePort3.AddToOTG(top, p3, &dutPort3)
+
+	i2 := top.Devices().Items()[1]
+	ipv4 := i2.Ethernets().Items()[0].Ipv4Addresses().Items()[0]
+	ipv6 := i2.Ethernets().Items()[0].Ipv6Addresses().Items()[0]
+
+	// Configure capture format.
+	top.Captures().Add().SetName("ca1").SetPortNames([]string{atePort1.Name}).SetFormat(gosnappi.CaptureFormat.PCAP)
+	top.Captures().Add().SetName("ca2").SetPortNames([]string{atePort2.Name}).SetFormat(gosnappi.CaptureFormat.PCAP)
+
+	// Configure BGP neighbour
+	// This causes the route ateIndirectNHCIDR -> atePort2's IP to be
+	// exchanged from OTG to DUT on DUT port 1.
+	bgp4ObjectMap := make(map[string]gosnappi.BgpV4Peer)
+	ipv4ObjectMap := make(map[string]gosnappi.DeviceIpv4)
+	bgp6ObjectMap := make(map[string]gosnappi.BgpV6Peer)
+	ipv6ObjectMap := make(map[string]gosnappi.DeviceIpv6)
+
+	ateName := atePort2.Name
+	devName := ateName + ".dev"
+	bgpNexthop := atePort2.IPv4
+	bgpNexthopv6 := atePort2.IPv6
+
+	bgp := i2.Bgp().SetRouterId(atePort2.IPv4)
+
+	// IPv4
+	bgp4Name := devName + ".BGP4.peer"
+	bgp4Peer := bgp.Ipv4Interfaces().Add().SetIpv4Name(ipv4.Name()).Peers().Add().SetName(bgp4Name).SetPeerAddress(ipv4.Gateway()).SetAsNumber(uint32(ateAS)).SetAsType(gosnappi.BgpV4PeerAsType.EBGP)
+
+	bgp4Peer.Capability().SetIpv4UnicastAddPath(true).SetIpv6UnicastAddPath(true)
+	bgp4Peer.LearnedInformationFilter().SetUnicastIpv4Prefix(true).SetUnicastIpv6Prefix(true)
+
+	bgp4ObjectMap[bgp4Name] = bgp4Peer
+	ipv4ObjectMap[devName+".IPv4"] = ipv4
+
+	bgpName := ateName + ".dev.BGP4.peer"
+	bgpPeer := bgp4ObjectMap[bgpName]
+	firstAdvAddr := strings.Split(ateIndirectNHCIDR, "/")[0]
+	firstAdvPrefix, _ := strconv.Atoi(strings.Split(ateIndirectNHCIDR, "/")[1])
+	bgp4PeerRoutes := bgpPeer.V4Routes().Add().SetName(bgpName + ".rr4").SetNextHopIpv4Address(bgpNexthop).SetNextHopAddressType(gosnappi.BgpV4RouteRangeNextHopAddressType.IPV4).SetNextHopMode(gosnappi.BgpV4RouteRangeNextHopMode.MANUAL)
+	bgp4PeerRoutes.Addresses().Add().SetAddress(firstAdvAddr).SetPrefix(uint32(firstAdvPrefix)).SetCount(1)
+	bgp4PeerRoutes.AddPath().SetPathId(1)
+
+	// IPv6
+	bgp6Name := devName + ".BGP6.peer"
+	bgp6Peer := bgp.Ipv6Interfaces().Add().SetIpv6Name(ipv6.Name()).Peers().Add().SetName(bgp6Name).SetPeerAddress(ipv6.Gateway()).SetAsNumber(uint32(ateAS)).SetAsType(gosnappi.BgpV6PeerAsType.EBGP)
+
+	bgp6Peer.Capability().SetIpv6UnicastAddPath(true).SetIpv6UnicastAddPath(true)
+	bgp6Peer.LearnedInformationFilter().SetUnicastIpv6Prefix(true).SetUnicastIpv6Prefix(true)
+
+	bgp6ObjectMap[bgp6Name] = bgp6Peer
+	ipv6ObjectMap[devName+".IPv6"] = ipv6
+
+	bgpNamev6 := ateName + ".dev.BGP6.peer"
+	bgpPeerv6 := bgp6ObjectMap[bgpNamev6]
+	firstAdvAddrv6 := strings.Split(ateIndirectNHCIDRv6, "/")[0]
+	firstAdvPrefixv6, _ := strconv.Atoi(strings.Split(ateIndirectNHCIDRv6, "/")[1])
+	bgp6PeerRoutes := bgpPeerv6.V6Routes().Add().SetName(bgpNamev6 + ".rr6").SetNextHopIpv6Address(bgpNexthopv6).SetNextHopAddressType(gosnappi.BgpV6RouteRangeNextHopAddressType.IPV6).SetNextHopMode(gosnappi.BgpV6RouteRangeNextHopMode.MANUAL)
+	bgp6PeerRoutes.Addresses().Add().SetAddress(firstAdvAddrv6).SetPrefix(uint32(firstAdvPrefixv6)).SetCount(1)
+	bgp6PeerRoutes.AddPath().SetPathId(1)
+
+	return top
+}
+
+var gatewayMap = map[attrs.Attributes]attrs.Attributes{
+	atePort1: dutPort1,
+	atePort2: dutPort2,
+	atePort3: dut2Port1,
+}
+
+// configureDUT1 configures ports on DUT1.
+func configureDUT1(t *testing.T, dut *ondatra.DUTDevice) {
+	p1 := dut.Port(t, "port1")
+	gnmi.Replace(t, dut, ocpath.Root().Interface(p1.Name()).Config(), dutPort1.NewOCInterface(p1.Name(), dut))
+
+	p2 := dut.Port(t, "port2")
+	gnmi.Replace(t, dut, ocpath.Root().Interface(p2.Name()).Config(), dutPort2.NewOCInterface(p2.Name(), dut))
+
+	p3 := dut.Port(t, "port3")
+	gnmi.Replace(t, dut, ocpath.Root().Interface(p3.Name()).Config(), dutPort3.NewOCInterface(p3.Name(), dut))
+
+	gnmi.Await(t, dut, ocpath.Root().Interface(dut.Port(t, "port1").Name()).Subinterface(0).Ipv4().Address(dutPort1.IPv4).Ip().State(), time.Minute, dutPort1.IPv4)
+	gnmi.Await(t, dut, ocpath.Root().Interface(dut.Port(t, "port2").Name()).Subinterface(0).Ipv4().Address(dutPort2.IPv4).Ip().State(), time.Minute, dutPort2.IPv4)
+	gnmi.Await(t, dut, ocpath.Root().Interface(dut.Port(t, "port3").Name()).Subinterface(0).Ipv4().Address(dutPort3.IPv4).Ip().State(), time.Minute, dutPort3.IPv4)
+	gnmi.Await(t, dut, ocpath.Root().Interface(dut.Port(t, "port1").Name()).Subinterface(0).Ipv6().Address(dutPort1.IPv6).Ip().State(), time.Minute, dutPort1.IPv6)
+	gnmi.Await(t, dut, ocpath.Root().Interface(dut.Port(t, "port2").Name()).Subinterface(0).Ipv6().Address(dutPort2.IPv6).Ip().State(), time.Minute, dutPort2.IPv6)
+	gnmi.Await(t, dut, ocpath.Root().Interface(dut.Port(t, "port3").Name()).Subinterface(0).Ipv6().Address(dutPort3.IPv6).Ip().State(), time.Minute, dutPort3.IPv6)
+
+	// Start a new BGP session that should exchange the necessary gRIBI
+	// route that recursively resolves and thus enables traffic to flow.
+	bgpPath := ocpath.Root().NetworkInstance(fakedevice.DefaultNetworkInstance).Protocol(oc.PolicyTypes_INSTALL_PROTOCOL_TYPE_BGP, "BGP").Bgp()
+
+	// Remove any existing BGP config
+	gnmi.Delete(t, dut, bgpPath.Config())
+
+	dutConf := bgpWithNbr(dutAS, dutPort3.IPv4, &oc.NetworkInstance_Protocol_Bgp_Neighbor{
+		PeerAs:          ygot.Uint32(dut2AS),
+		NeighborAddress: ygot.String(dut2Port2.IPv4),
+	}, &oc.NetworkInstance_Protocol_Bgp_Neighbor{
+		PeerAs:          ygot.Uint32(ateAS),
+		NeighborAddress: ygot.String(atePort2.IPv4),
+	}, &oc.NetworkInstance_Protocol_Bgp_Neighbor{
+		PeerAs:          ygot.Uint32(dut2AS),
+		NeighborAddress: ygot.String(dut2Port2.IPv6),
+	}, &oc.NetworkInstance_Protocol_Bgp_Neighbor{
+		PeerAs:          ygot.Uint32(ateAS),
+		NeighborAddress: ygot.String(atePort2.IPv6),
+	})
+	gnmi.Replace(t, dut, bgpPath.Config(), dutConf)
+}
+
+// configureDUT2 configures ports on DUT2.
+func configureDUT2(t *testing.T, dut *ondatra.DUTDevice) {
+	p1 := dut.Port(t, "port1")
+	gnmi.Replace(t, dut, ocpath.Root().Interface(p1.Name()).Config(), dut2Port1.NewOCInterface(p1.Name(), dut))
+
+	p2 := dut.Port(t, "port2")
+	gnmi.Replace(t, dut, ocpath.Root().Interface(p2.Name()).Config(), dut2Port2.NewOCInterface(p2.Name(), dut))
+
+	gnmi.Await(t, dut, ocpath.Root().Interface(dut.Port(t, "port1").Name()).Subinterface(0).Ipv4().Address(dut2Port1.IPv4).Ip().State(), time.Minute, dut2Port1.IPv4)
+	gnmi.Await(t, dut, ocpath.Root().Interface(dut.Port(t, "port2").Name()).Subinterface(0).Ipv4().Address(dut2Port2.IPv4).Ip().State(), time.Minute, dut2Port2.IPv4)
+	gnmi.Await(t, dut, ocpath.Root().Interface(dut.Port(t, "port1").Name()).Subinterface(0).Ipv6().Address(dut2Port1.IPv6).Ip().State(), time.Minute, dut2Port1.IPv6)
+	gnmi.Await(t, dut, ocpath.Root().Interface(dut.Port(t, "port2").Name()).Subinterface(0).Ipv6().Address(dut2Port2.IPv6).Ip().State(), time.Minute, dut2Port2.IPv6)
+
+	// Start a new BGP session that should exchange the necessary gRIBI
+	// route that recursively resolves and thus enables traffic to flow.
+	bgpPath := ocpath.Root().NetworkInstance(fakedevice.DefaultNetworkInstance).Protocol(oc.PolicyTypes_INSTALL_PROTOCOL_TYPE_BGP, "BGP").Bgp()
+
+	// Remove any existing BGP config
+	gnmi.Delete(t, dut, bgpPath.Config())
+
+	dut2Conf := bgpWithNbr(dut2AS, dut2Port2.IPv4, &oc.NetworkInstance_Protocol_Bgp_Neighbor{
+		PeerAs:          ygot.Uint32(dutAS),
+		NeighborAddress: ygot.String(dutPort3.IPv4),
+	}, &oc.NetworkInstance_Protocol_Bgp_Neighbor{
+		PeerAs:          ygot.Uint32(dutAS),
+		NeighborAddress: ygot.String(dutPort3.IPv6),
+	})
+	gnmi.Replace(t, dut, bgpPath.Config(), dut2Conf)
+}
+
+func waitOTGARPEntry(t *testing.T) {
+	ate := ondatra.ATE(t, "ate")
+
+	val, ok := gnmi.WatchAll(t, ate.OTG(), otgpath.Root().InterfaceAny().Ipv4NeighborAny().LinkLayerAddress().State(), time.Minute, func(v *ygnmi.Value[string]) bool {
+		return v.IsPresent()
+	}).Await(t)
+	if !ok {
+		t.Fatal("failed to get neighbor")
+	}
+	lla, _ := val.Val()
+	t.Logf("Neighbor %v", lla)
+
+	val, ok = gnmi.WatchAll(t, ate.OTG(), otgpath.Root().InterfaceAny().Ipv6NeighborAny().LinkLayerAddress().State(), time.Minute, func(v *ygnmi.Value[string]) bool {
+		return v.IsPresent()
+	}).Await(t)
+	if !ok {
+		t.Fatal("failed to get neighbor")
+	}
+	lla, _ = val.Val()
+	t.Logf("Neighbor %v", lla)
+}
+
+// revalidateBGPRoutes checks for BGP route re-establishment after OTG config
+// repush. OTG re-establishes BGP sessions after config repush.
+func revalidateBGPRoutes(t *testing.T) {
+	t.Helper()
+	dut := ondatra.DUT(t, "dut")
+	bgpPath := ocpath.Root().NetworkInstance(fakedevice.DefaultNetworkInstance).Protocol(oc.PolicyTypes_INSTALL_PROTOCOL_TYPE_BGP, "BGP").Bgp()
+	t.Logf("Verify DUT's DUT-DUT BGP session up")
+	gnmi.Await(t, dut, bgpPath.Neighbor(dut2Port2.IPv4).SessionState().State(), 20*time.Second, oc.Bgp_Neighbor_SessionState_ESTABLISHED)
+	gnmi.Await(t, dut, bgpPath.Neighbor(dut2Port2.IPv6).SessionState().State(), 20*time.Second, oc.Bgp_Neighbor_SessionState_ESTABLISHED)
+	t.Logf("Verify DUT's DUT-OTG BGP session up")
+	gnmi.Await(t, dut, bgpPath.Neighbor(atePort2.IPv4).SessionState().State(), 120*time.Second, oc.Bgp_Neighbor_SessionState_ESTABLISHED)
+	gnmi.Await(t, dut, bgpPath.Neighbor(atePort2.IPv6).SessionState().State(), 120*time.Second, oc.Bgp_Neighbor_SessionState_ESTABLISHED)
+	v4uni := bgpPath.Rib().AfiSafi(oc.BgpTypes_AFI_SAFI_TYPE_IPV4_UNICAST).Ipv4Unicast()
+	v6uni := bgpPath.Rib().AfiSafi(oc.BgpTypes_AFI_SAFI_TYPE_IPV6_UNICAST).Ipv6Unicast()
+	gnmi.Await(t, dut, v4uni.LocRib().Route(ateIndirectNHCIDR, oc.UnionString(atePort2.IPv4), 0).Prefix().State(), 60*time.Second, ateIndirectNHCIDR)
+	gnmi.Await(t, dut, v6uni.LocRib().Route(ateIndirectNHCIDRv6, oc.UnionString(atePort2.IPv6), 0).Prefix().State(), 60*time.Second, ateIndirectNHCIDRv6)
+}
+
+// testTraffic generates traffic flow from source network to
+// destination network via srcEndPoint to dstEndPoint and checks for
+// packet loss and returns loss percentage as float.
+func testTraffic(t *testing.T, otg *otg.OTG, srcEndPoint, dstEndPoint attrs.Attributes, startingIP string) float32 {
+	waitOTGARPEntry(t)
+	otgConfig := otg.FetchConfig(t)
+	otgConfig.Flows().Clear().Items()
+	flowipv4 := otgConfig.Flows().Add().SetName("Flow")
+	flowipv4.Metrics().SetEnable(true)
+	flowipv4.TxRx().Device().
+		SetTxNames([]string{srcEndPoint.Name + ".IPv4"}).
+		SetRxNames([]string{dstEndPoint.Name + ".IPv4"})
+	flowipv4.Duration().Continuous()
+	flowipv4.Packet().Add().Ethernet()
+	v4 := flowipv4.Packet().Add().Ipv4()
+	v4.Src().SetValue(srcEndPoint.IPv4)
+	v4.Dst().Increment().SetStart(startingIP).SetCount(250)
+
+	revalidateBGPRoutes(t)
+
+	otg.PushConfig(t, otgConfig)
+	otg.StartProtocols(t)
+
+	revalidateBGPRoutes(t)
+
+	otg.StartTraffic(t)
+	time.Sleep(5 * time.Second)
+	t.Logf("Stop traffic")
+	otg.StopTraffic(t)
+
+	time.Sleep(3 * time.Second)
+
+	txPkts := gnmi.Get(t, otg, gnmi.OTG().Flow("Flow").Counters().OutPkts().State())
+	rxPkts := gnmi.Get(t, otg, gnmi.OTG().Flow("Flow").Counters().InPkts().State())
+	lossPct := (txPkts - rxPkts) * 100 / txPkts
+	return float32(lossPct)
+}
+
+// testTrafficv6 generates traffic flow from source network to
+// destination network via srcEndPoint to dstEndPoint and checks for
+// packet loss and returns loss percentage as float.
+func testTrafficv6(t *testing.T, otg *otg.OTG, srcEndPoint, dstEndPoint attrs.Attributes, startingIP string) float32 {
+	waitOTGARPEntry(t)
+	otgConfig := otg.FetchConfig(t)
+	otgConfig.Flows().Clear().Items()
+	flowipv6 := otgConfig.Flows().Add().SetName("Flow2")
+	flowipv6.Metrics().SetEnable(true)
+	flowipv6.TxRx().Device().
+		SetTxNames([]string{srcEndPoint.Name + ".IPv6"}).
+		SetRxNames([]string{dstEndPoint.Name + ".IPv6"})
+	flowipv6.Duration().Continuous()
+	flowipv6.Packet().Add().Ethernet()
+	v6 := flowipv6.Packet().Add().Ipv6()
+	v6.Src().SetValue(srcEndPoint.IPv6)
+	v6.Dst().Increment().SetStart(startingIP).SetCount(250)
+
+	revalidateBGPRoutes(t)
+
+	otg.PushConfig(t, otgConfig)
+	otg.StartProtocols(t)
+
+	revalidateBGPRoutes(t)
+
+	otg.StartTraffic(t)
+	time.Sleep(5 * time.Second)
+	t.Logf("Stop traffic")
+	otg.StopTraffic(t)
+
+	time.Sleep(3 * time.Second)
+
+	txPkts := gnmi.Get(t, otg, gnmi.OTG().Flow("Flow2").Counters().OutPkts().State())
+	rxPkts := gnmi.Get(t, otg, gnmi.OTG().Flow("Flow2").Counters().InPkts().State())
+	lossPct := (txPkts - rxPkts) * 100 / txPkts
+	return float32(lossPct)
+}
+
+type layerDecodingLayer interface {
+	gopacket.Layer
+	DecodeFromBytes([]byte, gopacket.DecodeFeedback) error
+	NextLayerType() gopacket.LayerType
+}
+
+func testTrafficAndEncap(t *testing.T, otg *otg.OTG, startingIP string, v6Traffic bool, encapFields *EncapFields) {
+	t.Log("testTrafficAndEncap")
+	controlState := gosnappi.NewControlState()
+	controlState.Port().Capture().SetState(gosnappi.StatePortCaptureState.START).SetPortNames([]string{atePort2.Name})
+	otg.SetControlState(t, controlState)
+
+	testTraffic := testTraffic
+	if v6Traffic {
+		testTraffic = testTrafficv6
+	}
+
+	if loss := testTraffic(t, otg, atePort1, atePort2, startingIP); loss > lossTolerance {
+		t.Errorf("Loss: got %g, want <= %d", loss, lossTolerance)
+	} else {
+		t.Logf("Loss: got within acceptable range: %g", loss)
+	}
+
+	controlState.Port().Capture().SetState(gosnappi.StatePortCaptureState.STOP).SetPortNames([]string{atePort2.Name})
+	otg.SetControlState(t, controlState)
+
+	captureBytes := otg.GetCapture(t, gosnappi.NewCaptureRequest().SetPortName(atePort2.Name))
+
+	f, err := os.CreateTemp(".", "pcap")
+	if err != nil {
+		t.Fatalf("ERROR: Could not create temporary pcap file: %v\n", err)
+	}
+	defer os.Remove(f.Name())
+
+	if _, err := f.Write(captureBytes); err != nil {
+		t.Fatalf("ERROR: Could not write bytes to pcap file: %v\n", err)
+	}
+	f.Close()
+
+	f, err = os.Open(f.Name())
+	if err != nil {
+		t.Fatalf("ERROR: Could not open pcap file %s: %v\n", f.Name(), err)
+	}
+	defer f.Close()
+
+	handleRead, err := pcapgo.NewReader(f)
+	if err != nil {
+		t.Fatalf("ERROR: Could not create reader on pcap file %s: %v\n", f.Name(), err)
+	}
+	ps := gopacket.NewPacketSource(handleRead, layers.LinkTypeEthernet)
+
+	var wantNL gopacket.Layer
+	var gotNL layerDecodingLayer
+	var cmpIgnoreOptsNL []cmp.Option
+	cmpIgnoreOptsTL := []cmp.Option{cmpopts.IgnoreUnexported(layers.UDP{}), cmpopts.IgnoreFields(layers.UDP{}, "BaseLayer", "Length")}
+
+	isV6 := v6Traffic
+	if encapFields != nil {
+		isV6 = encapFields.srcIP.To4() == nil
+		t.Logf("Expecting encapped outer header version (isV6: %v): %+v", isV6, encapFields.srcIP.To16())
+	}
+	if isV6 {
+		gotNL = &layers.IPv6{}
+		if encapFields == nil {
+			wantNL = &layers.IPv6{
+				Version: 6,
+				Length:  24,                                                                          // 24 (v6 payload)
+				SrcIP:   net.IP{0x20, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0xaa, 0xaa, 0xbb, 0xbb, 0, 0xbb}, // ATE port 1.
+			}
+		} else {
+			wantNL = &layers.IPv6{
+				Version:    6,
+				Length:     72, // 40+24(v6 payload)+8(UDP)
+				NextHeader: layers.IPProtocolUDP,
+				SrcIP:      encapFields.srcIP,
+				DstIP:      encapFields.dstIP,
+			}
+		}
+		cmpIgnoreOptsNL = append(cmpIgnoreOptsNL, cmpopts.IgnoreUnexported(layers.IPv6{}), cmpopts.IgnoreFields(layers.IPv6{}, "BaseLayer", "TrafficClass", "FlowLabel", "HopLimit", "DstIP", "NextHeader"))
+	} else {
+		gotNL = &layers.IPv4{}
+		if encapFields == nil {
+			wantNL = &layers.IPv4{
+				Version: 4,
+				IHL:     5,
+				Length:  46,                   // 20+26(payload)
+				SrcIP:   net.IP{192, 0, 2, 2}, // ATE port 1.
+			}
+		} else {
+			var length uint16 = 74 // 20+26(v4 payload)+8(UDP)+20(encap)
+			if v6Traffic {
+				length = 92 // 40+24(v6 payload)+8(UDP)+20(encap)
+			}
+			wantNL = &layers.IPv4{
+				Version:  4,
+				IHL:      5,
+				Length:   length,
+				Protocol: layers.IPProtocolUDP,
+				SrcIP:    encapFields.srcIP,
+				DstIP:    encapFields.dstIP,
+			}
+		}
+		cmpIgnoreOptsNL = append(cmpIgnoreOptsNL, cmpopts.IgnoreUnexported(layers.IPv4{}), cmpopts.IgnoreFields(layers.IPv4{}, "BaseLayer", "Checksum", "TTL", "Protocol", "DstIP"))
+	}
+
+	var expectedPacketCounter int
+	// This number is for how many packets to peek before giving up on seeing the right flow.
+	// Because BGP re-establishment packets are counted this has to be a high number (>50).
+	var packetN = 200
+	const packetNAfterFirstGood = 30
+	const wantGoodPacketN = 20
+	var showPacketDebugOutput = false
+	var invalidPacketsPriorToFirstGood = 0
+	i := 0
+	for ; i != packetN; i++ {
+		pkt, err := ps.NextPacket()
+		if err != nil {
+			t.Fatalf("error reading next packet: %v", err)
+		}
+
+		if encapFields == nil {
+			nl := pkt.NetworkLayer()
+			if nl == nil {
+				if showPacketDebugOutput {
+					t.Logf("packet doesn't have network layer: %s", pkt.Dump())
+				}
+				continue
+			}
+			if err := gotNL.DecodeFromBytes(nl.LayerContents(), gopacket.NilDecodeFeedback); err != nil {
+				if showPacketDebugOutput {
+					t.Logf("cannot decode network layer header: %v\n%s", err, pkt.Dump())
+				}
+				continue
+			}
+			// TODO(wenbli): What should NextHeader be?
+			if diff := cmp.Diff(wantNL, gotNL, cmpIgnoreOptsNL...); diff != "" {
+				if showPacketDebugOutput {
+					t.Logf("Got unexpected network layer (-want, +got):\n%s\n%s", diff, pkt.Dump())
+				}
+				continue
+			}
+		} else {
+			nl := pkt.NetworkLayer()
+			if nl == nil {
+				if showPacketDebugOutput {
+					t.Logf("packet doesn't have network layer: %s", pkt.Dump())
+				}
+				continue
+			}
+			if err := gotNL.DecodeFromBytes(nl.LayerContents(), gopacket.NilDecodeFeedback); err != nil {
+				if showPacketDebugOutput {
+					t.Logf("cannot decode network layer header: %v\n%s", err, pkt.Dump())
+				}
+				continue
+			}
+			if diff := cmp.Diff(wantNL, gotNL, cmpIgnoreOptsNL...); diff != "" {
+				if showPacketDebugOutput {
+					t.Logf("Got unexpected network layer (-want, +got):\n%s\n%s", diff, pkt.Dump())
+				}
+				continue
+			}
+
+			wantTL := layers.UDP{
+				SrcPort: 0, // TODO(wenbli): Implement and test hashing for srcPort.
+				DstPort: layers.UDPPort(encapFields.dstPort),
+				Length:  34,
+			}
+			var gotTL layers.UDP
+			tl := pkt.TransportLayer()
+			if tl == nil {
+				if showPacketDebugOutput {
+					t.Errorf("packet doesn't have transport layer: %s", pkt.Dump())
+				}
+				continue
+			}
+			if err := gotTL.DecodeFromBytes(tl.LayerContents(), gopacket.NilDecodeFeedback); err != nil {
+				if showPacketDebugOutput {
+					t.Errorf("cannot decode transport layer header: %v", err)
+				}
+				continue
+			}
+			if diff := cmp.Diff(wantTL, gotTL, cmpIgnoreOptsTL...); diff != "" {
+				if showPacketDebugOutput {
+					t.Errorf("Got unexpected transport layer (-want, +got):\n%s\n%s", diff, pkt.Dump())
+				}
+				continue
+			}
+			// TODO: Check that lower layers is the original packet.
+		}
+
+		if expectedPacketCounter == 0 {
+			// Reset packet index to avoid counting other packet
+			// types that may be initially in the stream prior to
+			// the first good packet.
+			invalidPacketsPriorToFirstGood = i
+			i = 0
+			packetN = packetNAfterFirstGood
+			showPacketDebugOutput = true
+		}
+		expectedPacketCounter++
+		if expectedPacketCounter == wantGoodPacketN {
+			break
+		}
+	}
+	if expectedPacketCounter > 0 {
+		t.Logf("Got %d packets prior to first good one.", invalidPacketsPriorToFirstGood)
+	}
+
+	if expectedPacketCounter < wantGoodPacketN {
+		t.Errorf("Got less than %d expected packets: %v", wantGoodPacketN, expectedPacketCounter)
+	} else {
+		t.Logf("Got %d expected packets.", expectedPacketCounter)
+	}
+}
+
+// awaitTimeout calls a fluent client Await, adding a timeout to the context.
+func awaitTimeout(ctx context.Context, c *fluent.GRIBIClient, t testing.TB, timeout time.Duration) error {
+	subctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return c.Await(subctx, t)
+}
+
+func bgpWithNbr(as uint32, routerID string, nbrs ...*oc.NetworkInstance_Protocol_Bgp_Neighbor) *oc.NetworkInstance_Protocol_Bgp {
+	bgp := &oc.NetworkInstance_Protocol_Bgp{}
+	bgp.GetOrCreateGlobal().As = ygot.Uint32(as)
+	if routerID != "" {
+		bgp.Global.RouterId = ygot.String(routerID)
+	}
+	for _, nbr := range nbrs {
+		nbr.ApplyPolicy = &oc.NetworkInstance_Protocol_Bgp_Neighbor_ApplyPolicy{
+			DefaultImportPolicy: oc.RoutingPolicy_DefaultPolicyType_ACCEPT_ROUTE,
+			DefaultExportPolicy: oc.RoutingPolicy_DefaultPolicyType_ACCEPT_ROUTE,
+		}
+		bgp.AppendNeighbor(nbr)
+	}
+	return bgp
+}
+
+func verifyOTGBGPTelemetry(t *testing.T, otg *otg.OTG, c gosnappi.Config, state string) {
+	for _, d := range c.Devices().Items() {
+		for _, ip := range d.Bgp().Ipv4Interfaces().Items() {
+			for _, configPeer := range ip.Peers().Items() {
+				nbrPath := gnmi.OTG().BgpPeer(configPeer.Name())
+				_, ok := gnmi.Watch(t, otg, nbrPath.SessionState().State(), time.Minute, func(val *ygnmi.Value[otgtelemetry.E_BgpPeer_SessionState]) bool {
+					currState, ok := val.Val()
+					return ok && currState.String() == state
+				}).Await(t)
+				if !ok {
+					t.Log("BGP reported state", nbrPath.State(), gnmi.Get(t, otg, nbrPath.State()))
+					t.Errorf("No BGP neighbor formed for peer %s", configPeer.Name())
+				}
+			}
+		}
+		for _, ip := range d.Bgp().Ipv6Interfaces().Items() {
+			for _, configPeer := range ip.Peers().Items() {
+				nbrPath := gnmi.OTG().BgpPeer(configPeer.Name())
+				_, ok := gnmi.Watch(t, otg, nbrPath.SessionState().State(), time.Minute, func(val *ygnmi.Value[otgtelemetry.E_BgpPeer_SessionState]) bool {
+					currState, ok := val.Val()
+					return ok && currState.String() == state
+				}).Await(t)
+				if !ok {
+					t.Log("BGP reported state", nbrPath.State(), gnmi.Get(t, otg, nbrPath.State()))
+					t.Errorf("No BGP neighbor formed for peer %s", configPeer.Name())
+				}
+			}
+		}
+	}
+}
+
+func configureGRIBIEntry(t *testing.T, dut *ondatra.DUTDevice, entries []fluent.GRIBIEntry) *fluent.GRIBIClient {
+	t.Helper()
+	gribic := dut.RawAPIs().GRIBI(t)
+	c := fluent.NewClient()
+	c.Connection().WithStub(gribic).
+		WithRedundancyMode(fluent.ElectedPrimaryClient).
+		WithPersistence().
+		WithFIBACK().
+		WithInitialElectionID(1, 0)
+	ctx := context.Background()
+	c.Start(ctx, t)
+	defer c.Stop(t)
+	c.StartSending(ctx, t)
+	if err := awaitTimeout(ctx, c, t, time.Minute); err != nil {
+		t.Fatalf("Await got error during session negotiation: %v", err)
+	}
+
+	c.Modify().AddEntry(t, entries...)
+	if err := awaitTimeout(ctx, c, t, time.Minute); err != nil {
+		t.Fatalf("Await got error for entries: %v", err)
+	}
+	return c
+}
+
+// EncapFields are the expected encap fields for a GUE-encapped packet.
+type EncapFields struct {
+	srcIP   net.IP
+	dstIP   net.IP
+	dstPort uint16
+}
+
+func installStaticRoute(t *testing.T, dut *ondatra.DUTDevice, route *oc.NetworkInstance_Protocol_Static) {
+	staticp := ocpath.Root().NetworkInstance(fakedevice.DefaultNetworkInstance).
+		Protocol(oc.PolicyTypes_INSTALL_PROTOCOL_TYPE_STATIC, fakedevice.StaticRoutingProtocol)
+	gnmi.Replace(t, dut, staticp.Static(*route.Prefix).Config(), route)
+	gnmi.Await(t, dut, staticp.Static(*route.Prefix).State(), 30*time.Second, route)
+}
+
+func installGRIBIEntries(t *testing.T, dut2 *ondatra.DUTDevice) {
+	dut2Entries := []fluent.GRIBIEntry{
+		// Add an IPv4Entry for 198.51.0.0/24 pointing to 203.0.113.1.
+		fluent.NextHopEntry().WithNetworkInstance(fakedevice.DefaultNetworkInstance).
+			WithIndex(nhIndex1).WithIPAddress(ateIndirectNH1),
+		fluent.NextHopGroupEntry().WithNetworkInstance(fakedevice.DefaultNetworkInstance).
+			WithID(nhgIndex1).AddNextHop(nhIndex1, 1),
+		fluent.IPv4Entry().WithNetworkInstance(fakedevice.DefaultNetworkInstance).
+			WithPrefix(ateDstNetCIDR1).WithNextHopGroup(nhgIndex1),
+		// Add an IPv4Entry for 198.51.2.0/24 pointing to 203.0.113.5.
+		fluent.NextHopEntry().WithNetworkInstance(fakedevice.DefaultNetworkInstance).
+			WithIndex(nhIndex2).WithIPAddress(ateIndirectNH2),
+		fluent.NextHopGroupEntry().WithNetworkInstance(fakedevice.DefaultNetworkInstance).
+			WithID(nhgIndex2).AddNextHop(nhIndex2, 1),
+		fluent.IPv4Entry().WithNetworkInstance(fakedevice.DefaultNetworkInstance).
+			WithPrefix(ateDstNetCIDR2).WithNextHopGroup(nhgIndex2),
+		// Add an IPv4Entry for 198.51.4.0/24 pointing to 203.0.113.9.
+		fluent.NextHopEntry().WithNetworkInstance(fakedevice.DefaultNetworkInstance).
+			WithIndex(nhIndex3).WithIPAddress(ateIndirectNH3),
+		fluent.NextHopGroupEntry().WithNetworkInstance(fakedevice.DefaultNetworkInstance).
+			WithID(nhgIndex3).AddNextHop(nhIndex3, 1),
+		fluent.IPv4Entry().WithNetworkInstance(fakedevice.DefaultNetworkInstance).
+			WithPrefix(ateDstNetCIDR3).WithNextHopGroup(nhgIndex3),
+	}
+	c2 := configureGRIBIEntry(t, dut2, dut2Entries)
+
+	wantOperationResultsDUT2 := []*client.OpResult{
+		fluent.OperationResult().
+			WithNextHopOperation(nhIndex1).
+			WithProgrammingResult(fluent.InstalledInFIB).
+			WithOperationType(constants.Add).
+			AsResult(),
+		fluent.OperationResult().
+			WithNextHopGroupOperation(nhgIndex1).
+			WithProgrammingResult(fluent.InstalledInFIB).
+			WithOperationType(constants.Add).
+			AsResult(),
+		fluent.OperationResult().
+			WithIPv4Operation(ateDstNetCIDR1).
+			WithProgrammingResult(fluent.InstalledInFIB).
+			WithOperationType(constants.Add).
+			AsResult(),
+		fluent.OperationResult().
+			WithNextHopOperation(nhIndex2).
+			WithProgrammingResult(fluent.InstalledInFIB).
+			WithOperationType(constants.Add).
+			AsResult(),
+		fluent.OperationResult().
+			WithNextHopGroupOperation(nhgIndex2).
+			WithProgrammingResult(fluent.InstalledInFIB).
+			WithOperationType(constants.Add).
+			AsResult(),
+		fluent.OperationResult().
+			WithIPv4Operation(ateDstNetCIDR2).
+			WithProgrammingResult(fluent.InstalledInFIB).
+			WithOperationType(constants.Add).
+			AsResult(),
+		fluent.OperationResult().
+			WithNextHopOperation(nhIndex3).
+			WithProgrammingResult(fluent.InstalledInFIB).
+			WithOperationType(constants.Add).
+			AsResult(),
+		fluent.OperationResult().
+			WithNextHopGroupOperation(nhgIndex3).
+			WithProgrammingResult(fluent.InstalledInFIB).
+			WithOperationType(constants.Add).
+			AsResult(),
+		fluent.OperationResult().
+			WithIPv4Operation(ateDstNetCIDR3).
+			WithProgrammingResult(fluent.InstalledInFIB).
+			WithOperationType(constants.Add).
+			AsResult(),
+	}
+
+	for _, wantResult := range wantOperationResultsDUT2 {
+		chk.HasResult(t, c2.Results(t), wantResult, chk.IgnoreOperationID())
+	}
+}
+
+func TestBGPTriggeredGUE(t *testing.T) {
+	dut := ondatra.DUT(t, "dut")
+	configureDUT1(t, dut)
+	dut2 := ondatra.DUT(t, "dut2")
+	configureDUT2(t, dut2)
+
+	ate := ondatra.ATE(t, "ate")
+	otg := ate.OTG()
+	otgConfig := configureOTG(t, ate)
+	t.Logf("Pushing config to ATE and starting protocols...")
+	otg.PushConfig(t, otgConfig)
+	otg.StartProtocols(t)
+
+	bgpPath := ocpath.Root().NetworkInstance(fakedevice.DefaultNetworkInstance).Protocol(oc.PolicyTypes_INSTALL_PROTOCOL_TYPE_BGP, "BGP").Bgp()
+	nbrPath := bgpPath.Neighbor(dut2Port2.IPv4)
+	gnmi.Await(t, dut, nbrPath.SessionState().State(), 120*time.Second, oc.Bgp_Neighbor_SessionState_ESTABLISHED)
+
+	t.Logf("Verify DUT's DUT-DUT BGP session up")
+	gnmi.Await(t, dut, bgpPath.Neighbor(dut2Port2.IPv4).SessionState().State(), 120*time.Second, oc.Bgp_Neighbor_SessionState_ESTABLISHED)
+	gnmi.Await(t, dut, bgpPath.Neighbor(dut2Port2.IPv6).SessionState().State(), 120*time.Second, oc.Bgp_Neighbor_SessionState_ESTABLISHED)
+	t.Logf("Verify DUT's DUT-OTG BGP session up")
+	gnmi.Await(t, dut, bgpPath.Neighbor(atePort2.IPv4).SessionState().State(), 120*time.Second, oc.Bgp_Neighbor_SessionState_ESTABLISHED)
+	gnmi.Await(t, dut, bgpPath.Neighbor(atePort2.IPv6).SessionState().State(), 120*time.Second, oc.Bgp_Neighbor_SessionState_ESTABLISHED)
+	t.Logf("Verify OTG's DUT-OTG BGP sessions up")
+	verifyOTGBGPTelemetry(t, otg, otgConfig, "ESTABLISHED")
+
+	// Install entries to be propagated to DUT1.
+	installGRIBIEntries(t, dut2)
+
+	installv6Routes := func() {
+		// Install entries to be propagated to DUT1.
+		installStaticRoute(t, dut2, &oc.NetworkInstance_Protocol_Static{
+			Prefix: ygot.String(ateDstNetCIDR1v6),
+			NextHop: map[string]*oc.NetworkInstance_Protocol_Static_NextHop{
+				"single": {
+					Index:   ygot.String("single"),
+					NextHop: oc.UnionString(ateIndirectNH1v6),
+					Recurse: ygot.Bool(true),
+				},
+			},
+		})
+
+		installStaticRoute(t, dut2, &oc.NetworkInstance_Protocol_Static{
+			Prefix: ygot.String(ateDstNetCIDR2v6),
+			NextHop: map[string]*oc.NetworkInstance_Protocol_Static_NextHop{
+				"single": {
+					Index:   ygot.String("single"),
+					NextHop: oc.UnionString(ateIndirectNH2v6),
+					Recurse: ygot.Bool(true),
+				},
+			},
+		})
+
+		installStaticRoute(t, dut2, &oc.NetworkInstance_Protocol_Static{
+			Prefix: ygot.String(ateDstNetCIDR3v6),
+			NextHop: map[string]*oc.NetworkInstance_Protocol_Static_NextHop{
+				"single": {
+					Index:   ygot.String("single"),
+					NextHop: oc.UnionString(ateIndirectNH3v6),
+					Recurse: ygot.Bool(true),
+				},
+			},
+		})
+	}
+
+	installv6Routes()
+
+	installPolicy := func(one, two, v4 bool) {
+		policyOnePfx4 := "203.0.113.0/30"
+		policyOnePfx6 := "2002::/64"
+		policyTwoPfx4 := "203.0.113.0/29"
+		policyTwoPfx6 := "2002::/48"
+
+		if v4 && one {
+			gnmi.Replace(t, dut, ocpath.Root().BgpGueIpv4GlobalPolicy(policyOnePfx4).Config(), &oc.BgpGueIpv4GlobalPolicy{
+				DstPortIpv4: ygot.Uint16(42),
+				DstPortIpv6: ygot.Uint16(142),
+				Prefix:      ygot.String(policyOnePfx4),
+				SrcIp:       ygot.String("42.42.42.42"),
+			})
+		} else {
+			gnmi.Delete(t, dut, ocpath.Root().BgpGueIpv4GlobalPolicy(policyOnePfx4).Config())
+		}
+		if v4 && two {
+			gnmi.Replace(t, dut, ocpath.Root().BgpGueIpv4GlobalPolicy(policyTwoPfx4).Config(), &oc.BgpGueIpv4GlobalPolicy{
+				DstPortIpv4: ygot.Uint16(84),
+				DstPortIpv6: ygot.Uint16(184),
+				Prefix:      ygot.String(policyTwoPfx4),
+				SrcIp:       ygot.String("84.84.84.84"),
+			})
+		} else {
+			gnmi.Delete(t, dut, ocpath.Root().BgpGueIpv4GlobalPolicy(policyTwoPfx4).Config())
+		}
+		if !v4 && one {
+			gnmi.Replace(t, dut, ocpath.Root().BgpGueIpv6GlobalPolicy(policyOnePfx6).Config(), &oc.BgpGueIpv6GlobalPolicy{
+				DstPortIpv6: ygot.Uint16(142),
+				Prefix:      ygot.String(policyOnePfx6),
+				SrcIp:       ygot.String("4242:4242::"),
+			})
+		} else {
+			gnmi.Delete(t, dut, ocpath.Root().BgpGueIpv6GlobalPolicy(policyOnePfx6).Config())
+		}
+		if !v4 && two {
+			gnmi.Replace(t, dut, ocpath.Root().BgpGueIpv6GlobalPolicy(policyTwoPfx6).Config(), &oc.BgpGueIpv6GlobalPolicy{
+				DstPortIpv6: ygot.Uint16(184),
+				Prefix:      ygot.String(policyTwoPfx6),
+				SrcIp:       ygot.String("8484:8484::"),
+			})
+		} else {
+			gnmi.Delete(t, dut, ocpath.Root().BgpGueIpv6GlobalPolicy(policyTwoPfx6).Config())
+		}
+	}
+
+	tests := []struct {
+		desc             string
+		gnmiOp           func()
+		wantEncapFields1 *EncapFields
+		wantEncapFields2 *EncapFields
+		wantEncapFields3 *EncapFields
+		v6Traffic        bool
+		skip             bool
+	}{{
+		desc: "IPv4 without policy",
+		gnmiOp: func() {
+			installPolicy(false, false, true)
+		},
+	}, {
+		desc: "IPv6 without policy",
+		gnmiOp: func() {
+			installPolicy(false, false, false)
+		},
+		v6Traffic: true,
+	}, {
+		desc: "with single IPv4 policy",
+		gnmiOp: func() {
+			installPolicy(false, true, true)
+		},
+		wantEncapFields1: &EncapFields{
+			srcIP:   net.IP{84, 84, 84, 84},
+			dstIP:   net.IP{203, 0, 113, 1},
+			dstPort: 84,
+		},
+		wantEncapFields2: &EncapFields{
+			srcIP:   net.IP{84, 84, 84, 84},
+			dstIP:   net.IP{203, 0, 113, 5},
+			dstPort: 84,
+		},
+	}, {
+		desc: "with single IPv6 policy",
+		gnmiOp: func() {
+			installPolicy(false, true, false)
+		},
+		wantEncapFields1: &EncapFields{
+			srcIP:   net.IP{0x84, 0x84, 0x84, 0x84, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			dstIP:   net.IP{0x20, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			dstPort: 184,
+		},
+		wantEncapFields2: &EncapFields{
+			srcIP:   net.IP{0x84, 0x84, 0x84, 0x84, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			dstIP:   net.IP{0x20, 0x02, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			dstPort: 184,
+		},
+		v6Traffic: true,
+	}, {
+		desc: "with two overlapping IPv4 policies",
+		gnmiOp: func() {
+			installPolicy(true, true, true)
+		},
+		wantEncapFields1: &EncapFields{
+			srcIP:   net.IP{42, 42, 42, 42},
+			dstIP:   net.IP{203, 0, 113, 1},
+			dstPort: 42,
+		},
+		wantEncapFields2: &EncapFields{
+			srcIP:   net.IP{84, 84, 84, 84},
+			dstIP:   net.IP{203, 0, 113, 5},
+			dstPort: 84,
+		},
+	}, {
+		desc: "with two overlapping IPv6 policies",
+		gnmiOp: func() {
+			installPolicy(true, true, false)
+		},
+		wantEncapFields1: &EncapFields{
+			srcIP:   net.IP{0x42, 0x42, 0x42, 0x42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			dstIP:   net.IP{0x20, 0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			dstPort: 142,
+		},
+		wantEncapFields2: &EncapFields{
+			srcIP:   net.IP{0x84, 0x84, 0x84, 0x84, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			dstIP:   net.IP{0x20, 0x02, 0, 0, 0x10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			dstPort: 184,
+		},
+		v6Traffic: true,
+	}, {
+		desc: "IPv4 policy but with IPv6 traffic via IPv4-mapped IPv6 route",
+		gnmiOp: func() {
+			installPolicy(true, true, true)
+			// Overwrite route with IPv4 nexthop.
+			installStaticRoute(t, dut2, &oc.NetworkInstance_Protocol_Static{
+				Prefix: ygot.String(ateDstNetCIDR1v6MS), // This is more specific than the pure IPv6 routes.
+				NextHop: map[string]*oc.NetworkInstance_Protocol_Static_NextHop{
+					"single": {
+						Index: ygot.String("single"),
+						// OC doesn't recognize the IPv4-mapped IPv6 format, so need to convert it to expanded form.
+						NextHop: oc.UnionString(netip.MustParseAddr("::ffff:" + ateIndirectNH1).StringExpanded()),
+						Recurse: ygot.Bool(true),
+					},
+				},
+			})
+			installStaticRoute(t, dut2, &oc.NetworkInstance_Protocol_Static{
+				Prefix: ygot.String(ateDstNetCIDR2v6MS), // This is more specific than the pure IPv6 routes.
+				NextHop: map[string]*oc.NetworkInstance_Protocol_Static_NextHop{
+					"single": {
+						Index: ygot.String("single"),
+						// OC doesn't recognize the IPv4-mapped IPv6 format, so need to convert it to expanded form.
+						NextHop: oc.UnionString(netip.MustParseAddr("::ffff:" + ateIndirectNH2).StringExpanded()),
+						Recurse: ygot.Bool(true),
+					},
+				},
+			})
+			installStaticRoute(t, dut2, &oc.NetworkInstance_Protocol_Static{
+				Prefix: ygot.String(ateDstNetCIDR3v6MS), // This is more specific than the pure IPv6 routes.
+				NextHop: map[string]*oc.NetworkInstance_Protocol_Static_NextHop{
+					"single": {
+						Index: ygot.String("single"),
+						// OC doesn't recognize the IPv4-mapped IPv6 format, so need to convert it to expanded form.
+						NextHop: oc.UnionString(netip.MustParseAddr("::ffff:" + ateIndirectNH3).StringExpanded()),
+						Recurse: ygot.Bool(true),
+					},
+				},
+			})
+		},
+		wantEncapFields1: &EncapFields{
+			srcIP:   net.IP{42, 42, 42, 42},
+			dstIP:   net.IP{203, 0, 113, 1},
+			dstPort: 142,
+		},
+		wantEncapFields2: &EncapFields{
+			srcIP:   net.IP{84, 84, 84, 84},
+			dstIP:   net.IP{203, 0, 113, 5},
+			dstPort: 184,
+		},
+		v6Traffic: true,
+	}}
+
+	selectAddr := func(v4, v6 string, isv6 bool) string {
+		if isv6 {
+			return v6
+		}
+		return v4
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			if tt.skip {
+				t.Skip()
+			}
+
+			tests := []struct {
+				startingIP  string
+				encapFields *EncapFields
+			}{{
+				startingIP:  selectAddr("198.51.0.0", "2003:aaaa::", tt.v6Traffic),
+				encapFields: tt.wantEncapFields1,
+			}, {
+				startingIP:  selectAddr("198.51.2.0", "2003:bbbb::", tt.v6Traffic),
+				encapFields: tt.wantEncapFields2,
+			}, {
+				startingIP:  selectAddr("198.51.4.0", "2003:cccc::", tt.v6Traffic),
+				encapFields: tt.wantEncapFields3,
+			}}
+			v6Traffic := tt.v6Traffic
+
+			tt.gnmiOp()
+			for _, tt := range tests {
+				t.Run(tt.startingIP, func(t *testing.T) {
+					testTrafficAndEncap(t, otg, tt.startingIP, v6Traffic, tt.encapFields)
+				})
+			}
+		})
+	}
+
+	dut2.RawAPIs().GRIBI(t).Flush(context.Background(), &gribipb.FlushRequest{
+		NetworkInstance: &gribipb.FlushRequest_All{All: &gribipb.Empty{}},
+	})
+}

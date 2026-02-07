@@ -1,0 +1,15 @@
+[Unit]
+Description=Arista early platform initialization
+After=rc-local.service
+Before=opennsl-modules.service
+PartOf=platform-arista.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+
+ExecStart=/usr/bin/arista -l /var/log/arista.log setup --early --reset
+ExecStop=/usr/bin/arista -l /var/log/arista.log clean
+
+[Install]
+RequiredBy=platform-arista.target

@@ -1,0 +1,83 @@
+// © 2022 Nokia.
+//
+// This code is a Contribution to the gNMIc project (“Work”) made under the Google Software Grant and Corporate Contributor License Agreement (“CLA”) and governed by the Apache License 2.0.
+// No other rights or licenses in or to any of Nokia’s intellectual property are granted for any other purpose.
+// This code is provided on an “as is” basis without any warranties of any kind.
+//
+// SPDX-License-Identifier: Apache-2.0
+
+package file
+
+import (
+	"sync"
+
+	"github.com/prometheus/client_golang/prometheus"
+)
+
+var registerMetricsOnce sync.Once
+
+var numberOfWrittenBytes = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "gnmic",
+	Subsystem: "file_output",
+	Name:      "number_bytes_written_total",
+	Help:      "Number of bytes written to file output",
+}, []string{"name", "file_name"})
+
+var numberOfReceivedMsgs = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "gnmic",
+	Subsystem: "file_output",
+	Name:      "number_messages_received_total",
+	Help:      "Number of messages received by file output",
+}, []string{"name", "file_name"})
+
+var numberOfWrittenMsgs = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "gnmic",
+	Subsystem: "file_output",
+	Name:      "number_messages_writes_total",
+	Help:      "Number of messages written to file output",
+}, []string{"name", "file_name"})
+
+var numberOfFailWriteMsgs = prometheus.NewCounterVec(prometheus.CounterOpts{
+	Namespace: "gnmic",
+	Subsystem: "file_output",
+	Name:      "number_messages_writes_fail_total",
+	Help:      "Number of failed message writes to file output",
+}, []string{"name", "file_name", "reason"})
+
+func (f *File) initMetrics(name string) {
+	numberOfWrittenBytes.WithLabelValues(name, "").Add(0)
+	numberOfReceivedMsgs.WithLabelValues(name, "").Add(0)
+	numberOfWrittenMsgs.WithLabelValues(name, "").Add(0)
+	numberOfFailWriteMsgs.WithLabelValues(name, "", "").Add(0)
+}
+
+func (f *File) registerMetrics() error {
+	cfg := f.cfg.Load()
+	if cfg == nil {
+		return nil
+	}
+	if !cfg.EnableMetrics {
+		return nil
+	}
+	if f.reg == nil {
+		f.logger.Printf("ERR: metrics enabled but main registry is not initialized, enable main metrics under `api-server`")
+		return nil
+	}
+	var err error
+	registerMetricsOnce.Do(func() {
+		if err = f.reg.Register(numberOfWrittenBytes); err != nil {
+			return
+		}
+		if err = f.reg.Register(numberOfReceivedMsgs); err != nil {
+			return
+		}
+		if err = f.reg.Register(numberOfWrittenMsgs); err != nil {
+			return
+		}
+		if err = f.reg.Register(numberOfFailWriteMsgs); err != nil {
+			return
+		}
+	})
+	f.initMetrics(cfg.Name)
+	return err
+}

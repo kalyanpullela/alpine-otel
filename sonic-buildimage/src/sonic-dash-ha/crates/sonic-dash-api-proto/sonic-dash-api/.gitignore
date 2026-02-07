@@ -1,0 +1,10 @@
+.vscode/*
+proto/*
+!proto/*.proto
+**/build/*
+
+debian/.debhelper/*
+debian/debhelper-build-stamp
+debian/files
+debian/libdashapi.substvars
+debian/libdashapi

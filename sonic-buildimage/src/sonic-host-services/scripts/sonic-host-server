@@ -1,0 +1,92 @@
+#!/usr/bin/env python3
+"""Host Service to handle docker-to-host communication"""
+
+import os
+import os.path
+import glob
+import importlib
+import sys
+
+import dbus
+import dbus.service
+import dbus.mainloop.glib
+
+from gi.repository import GObject
+from host_modules import (
+    config_engine, 
+    debug_info, 
+    debug_service, 
+    docker_service, 
+    file_service, 
+    gcu, 
+    gnoi_reset, 
+    host_service, 
+    image_service, 
+    reboot, 
+    showtech, 
+    systemd_service
+)
+
+def register_dbus():
+    """Register DBus handlers for individual modules"""
+    mod_dict = {
+        'config': config_engine.Config('config'),
+        'gcu': gcu.GCU('gcu'),
+        'host_service': host_service.HostService('host_service'),
+        'reboot': reboot.Reboot('reboot'),
+        'showtech': showtech.Showtech('showtech'),
+        'systemd': systemd_service.SystemdService('systemd'),
+        'image_service': image_service.ImageService('image_service'),
+        'docker_service': docker_service.DockerService('docker_service'),
+        'file_stat': file_service.FileService('file'),
+        'debug_service': debug_service.DebugExecutor('DebugExecutor'),
+        'debug_info': debug_info.DebugArtifactCollector('debug_info'),
+        'gnoi_reset': gnoi_reset.GnoiReset('gnoi_reset')
+        }
+    for mod_name, handler_class in mod_dict.items():
+        handlers[mod_name] = handler_class
+
+# Create a main loop reactor
+GObject.threads_init()
+dbus.mainloop.glib.threads_init()
+dbus.mainloop.glib.DBusGMainLoop(set_as_default=True)
+loop = GObject.MainLoop()
+handlers = {}
+
+class SignalManager(object):
+    ''' This is used to manage signals received (e.g. SIGINT).
+        When stopping a process (systemctl stop [service]), systemd sends
+        a SIGTERM signal.
+    '''
+    shutdown = False
+    def __init__(self):
+        ''' Install signal handlers.
+
+            SIGTERM is invoked when systemd wants to stop the daemon.
+            For example, "systemctl stop mydaemon.service"
+            or,          "systemctl restart mydaemon.service"
+
+        '''
+        import signal
+        signal.signal(signal.SIGTERM, self.sigterm_hdlr)
+
+    def sigterm_hdlr(self, _signum, _frame):
+        self.shutdown = True
+        loop.quit()
+
+sigmgr = SignalManager()
+register_dbus()
+
+# Only run if we actually have some handlers
+if handlers:
+    import systemd.daemon
+    systemd.daemon.notify("READY=1")
+
+    while not sigmgr.shutdown:
+        loop.run()
+        if sigmgr.shutdown:
+            break
+
+    systemd.daemon.notify("STOPPING=1")
+else:
+    print("No handlers to register, quitting...")

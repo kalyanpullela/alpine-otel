@@ -1,0 +1,28 @@
+# C/C++ with GCC
+# Build your C/C++ project with GCC using make.
+# Add steps that publish test results, save build artifacts, deploy, and more:
+# https://docs.microsoft.com/azure/devops/pipelines/apps/c-cpp/gcc
+
+trigger:
+  branches:
+    include:
+      - "*"
+
+jobs:
+- template: .azure-pipelines/build.yml
+  parameters:
+    arch: amd64
+    pool:
+      vmImage: 'ubuntu-24.04'
+    codeCoverage: false
+    containerImage: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm:latest
+- template: .azure-pipelines/build.yml
+  parameters:
+    arch: arm64
+    pool: sonicso1ES-arm64
+    containerImage: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm-arm64:latest
+- template: .azure-pipelines/build.yml
+  parameters:
+    arch: armhf
+    pool: sonicso1ES-armhf
+    containerImage: sonicdev-microsoft.azurecr.io:443/sonic-slave-bookworm-armhf:latest

@@ -1,0 +1,98 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+pr:
+- main
+
+trigger:
+  batch: true
+  branches:
+    include:
+    - main
+
+pool: 
+  vmImage: ubuntu-latest
+
+schedules:
+- cron: "0 8 * * *"
+  displayName: Daily midnight build
+  branches:
+    include:
+    - main
+  always: true
+
+parameters:
+  - name: debian_version
+    type: string
+    default: bookworm
+  - name: arch
+    type: string
+    default: amd64
+   
+variables:
+  - name: BUILD_BRANCH
+    ${{ if eq(variables['Build.Reason'], 'PullRequest') }}:
+      value: $(System.PullRequest.TargetBranch)
+    ${{ else }}:
+      value: $(Build.SourceBranchName)
+  - name: SONIC_BRANCH
+    ${{ if eq(variables['BUILD_BRANCH'], 'main') }}:
+      value: master
+    ${{ else }}:
+      value: $(BUILD_BRANCH)
+stages:
+- stage: BuildVpp
+  
+  jobs:
+  - job:
+    displayName: amd64
+    timeoutInMinutes: 300
+    container:
+      image: sonicdev-microsoft.azurecr.io:443/sonic-slave-${{ parameters.debian_version }}:latest
+      options:  "--privileged"
+    steps:
+    - checkout: self
+      clean: true
+    - task: DownloadPipelineArtifact@2
+      inputs:
+        source: specific
+        project: build
+        pipeline: Azure.sonic-buildimage.common_libs
+        runVersion: 'latestFromBranch'
+        runBranch: 'refs/heads/master'
+        path: $(Build.ArtifactStagingDirectory)/download
+        artifact: common-lib
+        patterns: |
+            target/debs/${{ parameters.debian_version }}/libnl-3*.deb
+            target/debs/${{ parameters.debian_version }}/libnl-genl*.deb
+            target/debs/${{ parameters.debian_version }}/libnl-route*.deb
+            target/debs/${{ parameters.debian_version }}/libnl-nf*.deb
+      displayName: "Download common libs"
+    - script: |
+        set -ex
+        echo "SONIC_BRANCH: $(SONIC_BRANCH), BUILD_BRANCH: $(BUILD_BRANCH)"
+        # install libyang before install libswsscommon
+        sudo dpkg -i $(find ./download -name *.deb)
+        rm -rf download || true
+        cat /etc/apt/sources.list
+        dpkg --list |grep libnl
+      workingDirectory: $(Build.ArtifactStagingDirectory)
+      displayName: "Install libnl3"
+    - script: |
+        set -ex
+        mkdir repo
+        git clone https://gerrit.fd.io/r/vpp repo
+        cp -vr $(System.DefaultWorkingDirectory)/vppbld/plugins/* repo/src/plugins/
+        cd repo
+        git checkout $(cat $(System.DefaultWorkingDirectory)/vppbld/vpp_version)
+        git apply $(System.DefaultWorkingDirectory)/vppbld/vpp.patch
+        make UNATTENDED=y PLATFORM=vpp install-deps install-ext-deps
+        make UNATTENDED=y PLATFORM=vpp -j4 pkg-deb
+        mkdir artifacts
+        mv build-root/*.deb artifacts/
+      displayName: "Build VPP packages from source"
+    - publish: $(System.DefaultWorkingDirectory)/repo/artifacts
+      artifact: vpp
+      displayName: "Archive vpp debian packages"

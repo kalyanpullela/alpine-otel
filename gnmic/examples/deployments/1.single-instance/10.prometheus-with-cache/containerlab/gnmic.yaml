@@ -1,0 +1,88 @@
+# © 2022 Nokia.
+#
+# This code is a Contribution to the gNMIc project (“Work”) made under the Google Software Grant and Corporate Contributor License Agreement (“CLA”) and governed by the Apache License 2.0.
+# No other rights or licenses in or to any of Nokia’s intellectual property are granted for any other purpose.
+# This code is provided on an “as is” basis without any warranties of any kind.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+username: admin
+password: NokiaSrl1!
+skip-verify: true
+log: true
+
+loader:
+  type: docker
+  filters:
+    - containers:
+      - label=clab-node-kind: srl
+        label=containerlab: lab110
+
+subscriptions:
+  # Add subscriptions configuration here
+  # e.g:
+  sub1:
+    paths:
+      - /interface[name=*]/statistics
+      - /interface[name=*]/description
+    stream-mode: sample
+    sample-interval: 10s
+    encoding: ascii
+  sub2:
+    paths:
+      - /acl/cpm-filter/ipv4-filter/entry/statistics
+      - /acl/cpm-filter/ipv6-filter/entry/statistics
+    stream-mode: sample
+    sample-interval: 10s
+    encoding: ascii 
+
+outputs:
+  prom-output-redis:
+    type: prometheus
+    listen: "clab-lab110-gnmic:9804"
+    service-registration:
+      address: clab-lab110-consul-agent:8500
+    event-processors:
+      - group_by_interface
+    cache:
+      type: redis
+      address: "clab-lab110-redis:6379"
+
+  prom-output-nats:
+    type: prometheus
+    listen: "clab-lab110-gnmic:9805"
+    service-registration:
+      address: clab-lab110-consul-agent:8500
+    event-processors:
+      - group_by_interface
+    cache:
+      type: nats
+
+  prom-output-js:
+    type: prometheus
+    listen: "clab-lab110-gnmic:9806"
+    service-registration:
+      address: clab-lab110-consul-agent:8500
+    event-processors:
+      - group_by_interface
+    cache:
+      type: jetstream
+
+  prom-output-oc:
+    type: prometheus
+    listen: "clab-lab110-gnmic:9807"
+    service-registration:
+      address: clab-lab110-consul-agent:8500
+    event-processors:
+      - group_by_interface
+    cache: {}
+
+processors:
+  group_by_interface:
+    event-group-by:
+      tags:
+        - target
+        - interface_name
+
+api-server:
+  enable-metrics: true

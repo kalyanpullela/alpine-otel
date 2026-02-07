@@ -1,0 +1,10 @@
+username: admin
+password: NokiaSrl1!
+skip-verify: true
+debug: true
+
+subscriptions:
+  sub1:
+    paths:
+      - /system 
+    mode: once

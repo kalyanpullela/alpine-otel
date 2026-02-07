@@ -1,0 +1,32 @@
+# Copyright 2022 Google LLC
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+steps:
+  - id: remote_builder_test
+    name: gcr.io/$PROJECT_ID/remote-builder
+    env:
+      - USERNAME=user
+      - SSH_ARGS=--internal-ip --ssh-key-expire-after=1d
+      - INSTANCE_NAME=kne-presubmit-$BUILD_ID
+      - INSTANCE_ARGS=--network cloudbuild-workers --image-project gep-kne --image-family kne --machine-type e2-standard-32 --scopes=cloud-platform --boot-disk-size=100GB
+      - ZONE=us-central1-a
+      - REMOTE_WORKSPACE=/tmp/workspace
+      - COMMAND=sh -c "BUILD=$BUILD_ID /tmp/workspace/cloudbuild/presubmit.sh"
+
+timeout: 3600s
+
+logsBucket: 'gs://lemming-test-logs'
+options:
+  pool:
+    name: 'projects/openconfig-lemming/locations/us-central1/workerPools/lemming-workerpool'

@@ -1,0 +1,526 @@
+module sonic-test-xfmr {
+	namespace "http://github.com/Azure/sonic-test-xfmr";
+	prefix sonic-test-xfmr;
+	yang-version 1;
+
+	import sonic-extension { prefix sonic-ext; }
+
+	organization
+		"SONiC";
+
+	contact
+		"SONiC";
+
+	description
+		"SONIC transformer test yang";
+
+	revision 2023-04-30 {
+		description
+			"Initial revision of Sonic transformer test yang.";
+	}
+
+        typedef ntp-key-type {
+                type enumeration {
+                        enum MD5; 
+                        enum SHA1;
+                }
+        }
+
+	container sonic-test-xfmr {
+
+		container TEST_SENSOR_GROUP {
+
+			list TEST_SENSOR_GROUP_LIST {
+				key "id";
+
+				leaf id {
+			            type string;
+				}
+
+				leaf-list colors {
+					type string;
+				}
+
+        			leaf color-hold-time {
+			            type uint32;
+			            default 10;
+			            description "Hold time";
+			        }
+			}
+		}
+
+                container TEST_SENSOR_GROUP_COUNTERS {
+			config false;
+
+                        list TEST_SENSOR_GROUP_COUNTERS_LIST {
+                                key "id";
+                                
+                                leaf id {
+					type leafref {
+						path "../../../TEST_SENSOR_GROUP/TEST_SENSOR_GROUP_LIST/id";
+					}
+                                }
+                                
+                                leaf frame-in {
+                                    type uint32;
+                                }
+
+                                leaf frame-out {
+                                    type uint32;
+                                }
+                        }
+                }
+
+		container TEST_SENSOR_A_TABLE {
+
+			list TEST_SENSOR_A_TABLE_LIST { 
+				key "id type";
+
+				leaf id {
+					type leafref {
+						path "../../../TEST_SENSOR_GROUP/TEST_SENSOR_GROUP_LIST/id";
+					}
+				} 
+
+				leaf type {
+					type string {
+			                        pattern "sensor_type_a_[a-zA-Z0-9]*";
+                        		}
+				}
+
+				leaf exclude_filter {
+					type string;
+				}
+
+				leaf description_a {
+					type string; 
+				}
+			}
+		}
+
+		container TEST_SENSOR_A_LIGHT_SENSOR_TABLE {
+
+			list TEST_SENSOR_A_LIGHT_SENSOR_TABLE_LIST {
+				key "id type tag";
+
+				leaf id {
+					type leafref {
+						path "../../../TEST_SENSOR_A_TABLE/TEST_SENSOR_A_TABLE_LIST/id";
+					}
+				}
+
+				leaf type {
+					type leafref {
+						path "../../../TEST_SENSOR_A_TABLE/TEST_SENSOR_A_TABLE_LIST/type";
+					}
+				}
+
+				leaf tag {
+					type string {
+			                        pattern "light_sensor_[0-9]*";
+                                        }
+				}
+
+				leaf light-intensity-measure {
+					type uint32;
+                                       default 5;
+				}
+
+			}
+		}
+
+                container TEST_SENSOR_B_TABLE {
+
+                        list TEST_SENSOR_B_TABLE_LIST {
+                                key "id type";
+
+                                leaf id {
+                                        type leafref {
+                                                path "../../../TEST_SENSOR_GROUP/TEST_SENSOR_GROUP_LIST/id";
+                                        }
+                                }
+
+                               leaf type {
+                                        type string {
+                                                pattern "sensor_type_b_[a-zA-Z0-9]*";
+                                        }
+                                }
+
+                                leaf exclude_filter {
+                                        type string;
+                                }
+
+                                leaf description_b {
+                                        type string;
+                                }
+                        }
+                }
+
+                container TEST_SENSOR_COMPONENT_TABLE {
+
+                        list TEST_SENSOR_COMPONENT_TABLE_LIST {
+                                key "name type version";
+
+                                leaf name {
+                                    type string;
+                                }
+
+                               leaf type {
+                                    type string;
+                                }
+
+                                leaf version {
+                                    type string;
+                                }
+
+                                leaf description {
+                                    type string;
+                                }
+                        }
+                }
+
+                container TEST_SENSOR_ZONE_TABLE {
+                        list TEST_SENSOR_ZONE_TABLE_LIST {
+                                key "id zone";
+
+                                leaf id {
+                                    type string;
+                                }
+
+                               leaf zone {
+                                    type string;
+                                }
+
+                                leaf description {
+                                    type string;
+                                }
+                        }
+                }
+
+                container TEST_SET_TABLE {
+
+                        list TEST_SET_TABLE_LIST {
+                                key "name";
+                                
+                                leaf name {
+                                        type string;
+                                }
+
+				leaf type {
+                                        type enumeration {
+                                                enum IPV4; 
+                                                enum IPV6;
+                                        }
+                                }
+
+				leaf-list ports {
+					type string;
+				}       
+                                
+                                leaf description {
+                                        type string;
+                                }
+
+                        }
+                }
+
+                container TEST_SENSOR_MODE_TABLE {
+			config false;
+			sonic-ext:db-name "COUNTERS_DB";
+                        list TEST_SENSOR_MODE_TABLE_LIST {
+                                key "mode id";
+
+                                leaf mode {
+					type string;
+                                }
+
+                                leaf id {
+                                        type uint32;
+                                }
+
+                                leaf description {
+                                        type string;
+                                }
+                        }
+                }
+
+                container TEST_SENSOR_GLOBAL {
+                        container global_sensor {
+                                 leaf mode {
+                                        type string;
+                                 }
+                                 leaf description {
+                                        type string;
+                                 }
+                                 leaf reset_time {
+                                       type uint32;
+                                       default 5;
+                                 }
+                        }
+			container global_sensor_timer {
+                                 leaf timer_mode {
+                                        type string;
+                                 }
+                                 leaf timer_description {
+                                        type string;
+                                 }
+                                 leaf reset_time {
+                                       type uint32;
+                                       default 5;
+                                 }
+                        }
+                        list TEST_SENSOR_GLOBAL_LIST {
+                                 key "device_name device_id";
+                                 leaf device_name {
+                                        type string;
+                                 }
+                                 leaf device_id {
+                                        type uint32;
+                                 }
+                                 leaf device_status {
+                                        type enumeration {
+                                            enum ON;
+                                            enum OFF;
+                                         }
+                                  }
+
+                         }
+
+                }
+
+                container TEST_INTERFACE_MODE_TABLE {
+                        list TEST_INTERFACE_MODE_TABLE_LIST {
+                                key "name";
+
+                                leaf name {
+                                        type string;
+                                }
+                                leaf description {
+                                        type string;
+                                }
+                        }
+                        list TEST_INTERFACE_MODE_TABLE_IPADDR_LIST {
+                                key "name mode";
+
+                                leaf name {
+                                        type string;
+                                }
+                                leaf mode {
+                                        type string;
+                                }
+                                leaf description {
+                                        type string;
+                                }
+                        }
+                }
+
+                container TEST_CABLE_LENGTH {
+
+                    description "TEST_CABLE_LENGTH to test nested list yang support";
+
+                        list TEST_CABLE_LENGTH_LIST {
+                                key "name";
+
+                                leaf name {
+                                        type string {
+                                                length 1..32 {
+                                                       error-message "Invalid length for the cable length list name.";
+                                                        error-app-tag cable-length-invalid-list-name-length;
+                                                }
+                                        }
+                                }
+                                list TEST_CABLE_LENGTH {
+                                        key "port";
+                                        leaf port {
+                                                type leafref {
+                                                        path  "../../../../TEST_INTERFACE_MODE_TABLE/TEST_INTERFACE_MODE_TABLE_LIST/name";
+                                                }
+                                        }
+                                        leaf length {
+                                                type string {
+                                                        pattern '[0-9]+m' {
+                                                                error-message "Invalid cable length.";
+                                                                error-app-tag cable-length-invalid-length;
+                                                        }
+                                                }
+                                        }
+                                }
+                        }
+                }
+
+                container DEVICE_ZONE_METADATA {
+                        container local-zonehost {
+                                 leaf metric {
+                                   type uint32;
+                                 }
+                                 leaf hold-interval {
+                                   type uint32;
+                                 }
+                                 leaf hwsku {
+                                   type string;                                         
+                                 }
+                                 leaf deployment-id {
+					type uint8;
+                                 }
+                        }
+                }
+
+                container TRANSPORT_ZONE {
+                        container transport-host {
+                                 leaf transport-keepalive-interval {
+                                   type uint32;
+                                 }
+                                 leaf restart-time {
+                                   type uint32;                                         
+                                 }
+                                 leaf delay-time {
+					type uint32;
+                                        default 5;
+                                 }
+                        }
+                }
+
+                container TEST_NTP {
+                        container global {
+                                 leaf auth-enabled {
+                                        type boolean;
+                                 }
+                                 leaf-list trusted-key {
+                                        type leafref {
+                                                path "/sonic-test-xfmr/TEST_NTP_AUTHENTICATION_KEY/NTP_AUTHENTICATION_KEY_LIST/id";
+                                        }                                         
+                                 }
+                                 leaf ni-name {
+                                        type string;
+                                 }
+                        }
+                }
+
+                container TEST_NTP_AUTHENTICATION_KEY {
+                         list NTP_AUTHENTICATION_KEY_LIST {
+                                key "id";
+
+                                leaf id {
+                                        type uint32;
+                                }                                
+                                leaf key-type {
+                                        mandatory true;
+                                        type ntp-key-type;
+                                }
+                                leaf key-value {
+                                        type string;
+                                }                               
+                          }
+                }
+
+                container TEST_NTP_SERVER {
+                         list NTP_SERVER_LIST {
+                                key "server-id";
+
+                                leaf server-id {
+                                        type uint32;
+                                }                                
+                                leaf key-id {
+                                        type leafref {
+                                                path "/sonic-test-xfmr/TEST_NTP_AUTHENTICATION_KEY/NTP_AUTHENTICATION_KEY_LIST/id";
+                                        } 
+                                }
+                                leaf min-poll {
+                                        type uint8 {
+                                                range "3..17";
+                                        }
+                                }                               
+                          }
+                }
+
+                container TEST_VRF {
+                         list TEST_VRF_LIST {
+                                key "test-vrf-name";
+
+                                leaf test-vrf-name {
+                                        type string {
+                                                pattern "default|Vrf_[a-zA-Z0-9]+" {
+                                                        error-message "Invalid VRF name";
+                                                        error-app-tag vrf-name-invalid;
+                                                }
+                                        }
+                                }                                
+                                leaf enabled {
+                                        type boolean;
+                                }
+                                leaf description {
+                                        type string;
+                                }                           
+                          }
+                }
+
+                container TEST_BGP_NETWORK_CFG {
+                         list TEST_BGP_NETWORK_CFG_LIST {
+                                key "test-vrf-name network-id";
+
+                                leaf test-vrf-name {
+                                        type leafref {
+                                                path "../../../TEST_VRF/TEST_VRF_LIST/test-vrf-name";
+                                        }
+                                }
+                                leaf network-id {
+                                        type uint32;
+                                }                                
+                                leaf backdoor {
+                                        type boolean;
+                                }                           
+                                leaf policy-name {
+                                        type string;
+                                }
+                          }
+                }
+
+                container TEST_OSPFV2_ROUTER {
+                         list TEST_OSPFV2_ROUTER_LIST {
+                                key "test-vrf-name";
+
+                                leaf test-vrf-name {
+                                        type leafref {
+                                                path "../../../TEST_VRF/TEST_VRF_LIST/test-vrf-name";
+                                        }
+                                }                             
+                                leaf enabled {
+                                        type boolean;
+                                }
+                                leaf write-multiplier {
+                                        type uint32;
+                                }
+                                leaf maximum-paths {
+                                        type uint32;
+                                } 
+                                leaf initial-delay {
+                                        type uint32;
+                                }
+                                leaf max-delay {
+                                        type uint32;
+                                }                          
+                          }
+                }
+
+                container TEST_OSPFV2_ROUTER_DISTRIBUTION {
+                         list TEST_OSPFV2_ROUTER_DISTRIBUTION_LIST {
+                                key "test-vrf-name distribution-id";
+
+                                leaf test-vrf-name {
+                                        type leafref {
+                                                path "../../../TEST_OSPFV2_ROUTER/TEST_OSPFV2_ROUTER_LIST/test-vrf-name";
+                                        }
+                                }                             
+                                leaf distribution-id {
+                                        type uint32;
+                                }
+                                leaf priority {
+                                        type uint32;
+                                }
+                                leaf table-id {
+                                        type uint32;
+                                }                  
+                         }
+                }
+	}
+}

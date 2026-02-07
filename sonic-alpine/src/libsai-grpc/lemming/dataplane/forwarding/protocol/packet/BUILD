@@ -1,0 +1,38 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_test")
+
+go_test(
+    name = "packet_test",
+    size = "small",
+    srcs = [
+        "arp_test.go",
+        "ethernet_test.go",
+        "icmp_test.go",
+        "ip4_test.go",
+        "ip6_test.go",
+        "metadata_test.go",
+        "mirror_test.go",
+        "mpls_test.go",
+        "tcp_test.go",
+        "tunnel_test.go",
+        "udp_test.go",
+    ],
+    deps = [
+        "//dataplane/forwarding/infra/fwdobject",
+        "//dataplane/forwarding/infra/fwdpacket",
+        "//dataplane/forwarding/protocol",
+        "//dataplane/forwarding/protocol/arp",
+        "//dataplane/forwarding/protocol/ethernet",
+        "//dataplane/forwarding/protocol/icmp",
+        "//dataplane/forwarding/protocol/ip",
+        "//dataplane/forwarding/protocol/metadata",
+        "//dataplane/forwarding/protocol/mpls",
+        "//dataplane/forwarding/protocol/opaque",
+        "//dataplane/forwarding/protocol/packettestutil",
+        "//dataplane/forwarding/protocol/tcp",
+        "//dataplane/forwarding/protocol/udp",
+        "//dataplane/forwarding/util/frame",
+        "//proto/forwarding",
+        "@com_github_google_gopacket//:gopacket",
+        "@com_github_google_gopacket//layers",
+    ],
+)

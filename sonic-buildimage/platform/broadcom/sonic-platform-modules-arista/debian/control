@@ -1,0 +1,64 @@
+Source: sonic-platform-arista
+Section: main
+Priority: extra
+Maintainer: Samuel Angebault <staphylo@arista.com>
+Build-Depends:
+   dh-python,
+   debhelper (>= 9.0.0),
+   python3(>=3.5),
+   python3-setuptools,
+   bzip2
+Standards-Version: 1.0.0
+X-Python3-Version: >= 3.5
+XS-Python3-Version: >= 3.5
+
+Package: drivers-sonic-platform-arista
+Architecture: amd64
+Depends:
+   ${misc:Depends},
+   linux-image-4.19.0-6-amd64-unsigned
+Description: Arista kernel modules for arista platform devices such as fan, led, sfp, psu
+
+Package: python3-sonic-platform-arista
+Architecture: all
+Depends:
+   ${python3:Depends},
+   ${misc:Depends}
+   python3-smbus
+Description: Arista python3 libraries
+ These libraries allow to work with devices such as fan, led, sfp, psu
+
+Package: sonic-platform-arista
+Architecture: amd64
+Depends:
+   ${python3:Depends},
+   ${misc:Depends},
+   python3-sonic-platform-arista,
+   python3(>=3.5),
+   i2c-tools
+Description: Miscellaneous Arista scripts and tools
+
+Package: sonic-platform-arista-all
+Architecture: amd64
+Depends:
+   ${python3:Depends},
+   ${misc:Depends},
+   python3(>=3.5),
+   i2c-tools,
+   python3-bottle,
+   python3-smbus,
+   python3-yaml,
+   linux-image-4.19.0-6-amd64-unsigned
+Description: Arista platform library as a single package
+
+Package: sonic-platform-arista-libs
+Architecture: amd64
+Depends:
+   ${misc:Depends}
+Description: Arista compiled user libraries
+
+Package: drivers-sonic-platform-arista-dev
+Architecture: amd64
+Depends:
+   ${misc:Depends}
+Description: Miscellaneous Arista headers and symvers files

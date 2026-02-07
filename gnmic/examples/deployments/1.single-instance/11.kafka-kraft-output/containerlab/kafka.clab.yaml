@@ -1,0 +1,62 @@
+# © 2022 Nokia.
+#
+# This code is a Contribution to the gNMIc project (“Work”) made under the Google Software Grant and Corporate Contributor License Agreement (“CLA”) and governed by the Apache License 2.0.
+# No other rights or licenses in or to any of Nokia’s intellectual property are granted for any other purpose.
+# This code is provided on an “as is” basis without any warranties of any kind.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+name: lab12
+
+topology:
+  defaults:
+    kind: nokia_srlinux
+
+  kinds:
+    nokia_srlinux:
+      image: ghcr.io/nokia/srlinux
+
+  nodes:
+    spine1:
+    spine2:
+    leaf1:
+    leaf2:
+    leaf3:
+    leaf4:
+
+    gnmic:
+      kind: linux
+      image: ghcr.io/openconfig/gnmic:latest
+      binds:
+        - ./gnmic.yaml:/app/gnmic.yaml:ro
+        - /var/run/docker.sock:/var/run/docker.sock
+      cmd: '--config /app/gnmic.yaml --log subscribe'
+
+    kafka-server:
+      kind: linux
+      image: bitnami/kafka:latest
+      ports:
+        - 9092:9092
+        - 9093:9093
+      env:
+        KAFKA_ENABLE_KRAFT: yes
+        ALLOW_PLAINTEXT_LISTENER: yes
+        KAFKA_CFG_NODE_ID: 0
+        KAFKA_CFG_PROCESS_ROLES: broker,controller
+        KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+        KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+        KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+        KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://clab-lab12-kafka-server:9092
+        KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 0@clab-lab12-kafka-server:9093
+
+  links:
+    # spine1 links
+    - endpoints: ["spine1:e1-1", "leaf1:e1-1"]
+    - endpoints: ["spine1:e1-2", "leaf2:e1-1"]
+    - endpoints: ["spine1:e1-3", "leaf3:e1-1"]
+    - endpoints: ["spine1:e1-4", "leaf4:e1-1"]
+    # spine2 links
+    - endpoints: ["spine2:e1-1", "leaf1:e1-2"]
+    - endpoints: ["spine2:e1-2", "leaf2:e1-2"]
+    - endpoints: ["spine2:e1-3", "leaf3:e1-2"]
+    - endpoints: ["spine2:e1-4", "leaf4:e1-2"]

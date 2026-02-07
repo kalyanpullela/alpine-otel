@@ -1,0 +1,12 @@
+include $(PLATFORM_PATH)/syncd-vs.dep
+include $(PLATFORM_PATH)/sonic-version.dep
+include $(PLATFORM_PATH)/docker-syncd-vs.dep
+include $(PLATFORM_PATH)/one-image.dep
+include $(PLATFORM_PATH)/onie.dep
+include $(PLATFORM_PATH)/kvm-image.dep
+include $(PLATFORM_PATH)/raw-image.dep
+include $(PLATFORM_PATH)/platform-alpinevs.dep
+include $(PLATFORM_PATH)/alpine-config.dep
+include $(PLATFORM_PATH)/alpine-init.dep
+include $(PLATFORM_PATH)/alpine-device.dep
+include $(PLATFORM_PATH)/pkt-handler.dep

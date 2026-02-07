@@ -1,0 +1,40 @@
+[package]
+name = "swbus-edge"
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+# Async framework
+tokio.workspace = true
+tokio-stream.workspace = true
+
+# gRPC
+tonic.workspace = true
+prost.workspace = true
+
+# Log and error handling
+tracing.workspace = true
+
+# Utilities
+contracts.workspace = true
+strum.workspace = true
+dashmap.workspace = true
+thiserror.workspace = true
+
+# Internal dependencies
+swbus-proto.workspace = true
+
+[dev-dependencies]
+swbus-core.workspace = true
+swbus-config.workspace = true
+serde_yaml.workspace = true
+sonic-common.workspace = true
+rand = "0.8.5"

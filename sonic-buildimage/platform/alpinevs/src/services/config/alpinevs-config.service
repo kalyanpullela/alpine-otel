@@ -1,0 +1,15 @@
+[Unit]
+Description=AlpineVS initial configs
+Requires=database.service
+After=database.service swss.service
+BindsTo=sonic.target
+After=sonic.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/alpinevs-config.sh
+
+[Install]
+WantedBy=sonic.target
+

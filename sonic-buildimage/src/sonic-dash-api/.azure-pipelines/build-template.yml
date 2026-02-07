@@ -1,0 +1,51 @@
+parameters:
+- name: arch
+  type: string
+  values:
+  - amd64
+  - armhf
+  - arm64
+  default: amd64
+
+- name: pool
+  type: string
+  values:
+  - sonicso1ES-amd64
+  - sonicso1ES-armhf
+  - sonicso1ES-arm64
+  - default
+  default: default
+
+- name: debian_version
+  type: string
+  default: bookworm
+
+- name: artifact_name
+  type: string
+
+jobs:
+- job:
+  displayName: ${{ parameters.arch }}
+  pool:
+    ${{ if ne(parameters.pool, 'default') }}:
+      name: ${{ parameters.pool }}
+    ${{ else }}:
+      vmImage: 'ubuntu-24.04'
+
+  container:
+    image: sonicdev-microsoft.azurecr.io:443/sonic-slave-${{ parameters.debian_version }}:$(BUILD_BRANCH)-${{ parameters.arch }}
+
+  steps:
+  - script: |
+      set -e
+      sudo apt-get update
+      sudo apt-get install -y make libboost1.83-all-dev libgtest-dev build-essential swig4.0
+    displayName: "Install dependencies"
+  - script: |
+      set -e
+      mkdir -p package
+      dpkg-buildpackage -rfakeroot -us -uc -b -j$(nproc)
+      cp ../*.deb package/
+    displayName: "Build sonic-dash-api"
+  - publish: $(System.DefaultWorkingDirectory)/package
+    artifact: ${{ parameters.artifact_name }}

@@ -1,0 +1,37 @@
+[package]
+name = "hamgrd"
+description = "SONiC DASH high availability manager daemon"
+categories = ["command-line-utilities"]
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+swbus-edge = { path = "../swbus-edge" }
+swbus-actor = { path = "../swbus-actor" }
+swss-common.workspace = true
+swss-common-bridge = { path = "../swss-common-bridge" }
+swss-serde = { path = "../swss-serde" }
+swss-common-testing.workspace = true
+swbus-config.workspace = true
+sonic-common.workspace = true
+sonicdb-derive.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_with.workspace = true
+clap.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+sonic-dash-api-proto.workspace = true
+prost.workspace = true
+hex.workspace = true
+lazy_static.workspace = true
+serde_json.workspace = true

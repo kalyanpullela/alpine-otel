@@ -1,0 +1,253 @@
+syntax = "proto3";
+
+package swbus;
+
+// Swbus service
+service SwbusService {
+  rpc StreamMessages(stream SwbusMessage) returns (stream SwbusMessage) {}
+}
+
+//
+// Service path is used to identify a service uniquely.
+//
+// To demosntrate the usage of service path, we can use the following example with "." and "/" as the delimiter:
+// - region-a.switch-cluster-a.10.0.0.1/hamgrd/dpu3/hascope/dpu
+// - region-b.switch-cluster-b.10.0.0.2/hamgrd/dpu4/hascope/eni-0a1b2c3d4e5f6
+// - region-c.switch-cluster-c.10.0.0.3/redis/dpu5/APPL.SOME_TABLE/some_key:some_subkey
+//
+// When message is routed, it will:
+// - First, use the full path to find the exact match. If there is a match, route the message there.
+// - If not, try again with only the service location to find the match.
+// - If not, try again with only region id and cluster id to find the match.
+// - If not, try again with only region id to find the match.
+// - If still not, return NO_ROUTE error.
+//
+message ServicePath {
+  // Server location
+  string region_id = 10;
+  string cluster_id = 20;
+  string node_id = 30;
+
+  // Service info
+  string service_type = 110;
+  string service_id = 120;
+
+  // Resource info
+  string resource_type = 210;
+  string resource_id = 220;
+}
+
+//
+// Common message header for all swbus messages.
+//
+message SwbusMessageHeader {
+  uint32 version = 1;
+
+  // Message info
+
+  // A unique message id among messages from a specific `ServicePath`/endpoint.
+  // Two messages from different endpoints may have the same id, but two messages
+  // from the same endpoint should never share the same id (even if the program
+  // is restarted).
+  // The id is defined as (client startup time in epoch nanos) + (number of messages sent).
+  uint64 id = 10;
+  uint32 flag = 20;
+  uint32 ttl = 30;
+
+  // Source and destination info
+  ServicePath source = 110;
+  ServicePath destination = 120;
+}
+
+//
+// Common request response message.
+//
+enum SwbusErrorCode {
+  // Unknown error.
+  //
+  // This must be the first variant defined in the `.proto` file, as that's how `prost` decides the default value.
+  // The default value is returned by methods such as `RequestResponse::error_code` if the `error_code` field has an unknown value.
+  SWBUS_ERROR_CODE_UNKNOWN_ERROR = 0;
+
+  // OK - no error
+  SWBUS_ERROR_CODE_OK = 1;
+
+  // Connection error starts.
+  // This section captures all error code that related to connection or network.
+  SWBUS_ERROR_CODE_CONNECTION_ERROR_MIN = 100;
+
+  // Failed to connect or not connected
+  SWBUS_ERROR_CODE_CONNECTION_ERROR = 101;
+
+  // Message timed out.
+  SWBUS_ERROR_CODE_TIMEOUT = 102;
+
+  // Connection error ends.
+  SWBUS_ERROR_CODE_CONNECTION_ERROR_MAX = 199;
+
+  // Input error starts.
+  // This section captures all error code that caused by user input, either API parameter or message format.
+  SWBUS_ERROR_CODE_INPUT_ERROR_MIN = 200;
+
+  // Generic invalid arguments.
+  SWBUS_ERROR_CODE_INVALID_ARGS = 201;
+
+  // Invalid destination.
+  SWBUS_ERROR_CODE_INVALID_DESTINATION = 202;
+
+  // Invalid source.
+  SWBUS_ERROR_CODE_INVALID_SOURCE = 203;
+
+  // Invalid message header.
+  SWBUS_ERROR_CODE_INVALID_HEADER = 210;
+
+  // Invalid message payload.
+  SWBUS_ERROR_CODE_INVALID_PAYLOAD = 211;
+
+  // Invalid route announcement
+  SWBUS_ERROR_CODE_INVALID_ROUTE = 212;
+
+  // Input error ends.
+  SWBUS_ERROR_CODE_INPUT_ERROR_MAX = 299;
+
+  // Routing errors starts.
+  // This section captures all error code that happens during message routing or forwarding.
+  SWBUS_ERROR_CODE_ROUTE_ERROR_MIN = 300;
+
+  // Destination route not found.
+  SWBUS_ERROR_CODE_NO_ROUTE = 301;
+
+  // Message queue full.
+  SWBUS_ERROR_CODE_QUEUE_FULL = 302;
+
+  // TTL expired.
+  SWBUS_ERROR_CODE_UNREACHABLE = 303;
+
+  // Service not found.
+  SWBUS_ERROR_CODE_SERVICE_NOT_FOUND = 370;
+
+  // Resource not found.
+  SWBUS_ERROR_CODE_RESOURCE_NOT_FOUND = 380;
+
+  // Routing errors ends.
+  SWBUS_ERROR_CODE_ROUTE_ERROR_MAX = 399;
+
+  // Internal error starts.
+  // This section captures all error code that caused by service itself, not a user error.
+  // The errors in this section are rare to happen, and should be logged and investigated.
+  SWBUS_ERROR_CODE_INTERNAL_ERROR_MIN = 900;
+
+  // Uncategorized internal error.
+  SWBUS_ERROR_CODE_FAIL = 901;
+
+  // Internal error ends.
+  SWBUS_ERROR_CODE_INTERNAL_ERROR_MAX = 999;
+}
+
+message RequestResponse {
+  uint64 request_id = 10;
+  SwbusErrorCode error_code = 20;
+  string error_message = 30;
+  oneof ResponseBody {
+    RouteEntries route_entries = 100;
+    ManagementQueryResult management_query_result = 110;
+  }
+}
+
+//
+// Connection Type
+//
+enum ConnectionType {
+  CONNECTION_TYPE_CLIENT = 0;
+  CONNECTION_TYPE_IN_NODE = 1;
+  CONNECTION_TYPE_IN_CLUSTER = 2;
+  CONNECTION_TYPE_IN_REGION = 3;
+  CONNECTION_TYPE_GLOBAL = 4;
+}
+
+//
+// Registration related messages.
+//
+enum RouteScope {
+  ROUTE_SCOPE_CLIENT = 0;
+  ROUTE_SCOPE_IN_NODE = 1;
+  ROUTE_SCOPE_IN_CLUSTER = 2;
+  ROUTE_SCOPE_IN_REGION = 3;
+  ROUTE_SCOPE_GLOBAL = 4;
+}
+
+message RouteEntries {
+  repeated RouteEntry entries = 10;
+}
+
+message RouteEntry {
+  ServicePath service_path = 10;
+  string nh_id = 20;
+  ServicePath nh_service_path = 30;
+  RouteScope route_scope = 40;
+  uint32 hop_count = 50;
+}
+
+//
+// Ping request
+//
+message PingRequest {}
+
+//
+// Trace route request
+//
+message TraceRouteRequest {
+}
+
+message ManagementRequestArg {
+  string name = 10;
+  string value = 20;
+}
+enum ManagementRequestType {
+  MANAGEMENT_REQUEST_TYPE_SWBUSD_GET_ROUTES = 0;
+  MANAGEMENT_REQUEST_TYPE_HAMGRD_GET_ACTOR_STATE = 1;
+}
+//
+// Management requests for debugging purpose
+//
+message ManagementRequest {
+  ManagementRequestType request = 10;
+  repeated ManagementRequestArg arguments = 20;
+}
+
+message ManagementQueryResult {
+  string value = 10;
+}
+//
+// Route data request
+//
+message DataRequest {
+  bytes payload = 20;
+}
+
+//
+// Swbus message
+//
+message SwbusMessage {
+  SwbusMessageHeader header = 10;
+
+  oneof Body {
+    RequestResponse response = 20;
+
+    // Route Update
+    RouteEntries route_announcement = 100;
+
+    // Ping
+    PingRequest ping_request = 310;
+
+    // Trace route
+    TraceRouteRequest trace_route_request = 410;
+
+    // Management request
+    ManagementRequest management_request = 510;
+
+    // General purpose request.
+    // Send a binary payload to another node.
+    DataRequest data_request = 10000;
+  }
+}

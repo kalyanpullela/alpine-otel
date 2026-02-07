@@ -1,0 +1,36 @@
+#!/bin/sh
+
+set -e
+
+. /host/machine.conf
+
+if [ -z "$onie_platform" ]; then
+    echo "Warning: onie_platform variable not set"
+    exit 1
+fi
+
+depmod -a
+
+pywhl="/usr/share/sonic/device/$onie_platform/sonic_platform-1.0-py3-none-any.whl"
+if [ ! -f "$pywhl" ]; then
+    cp /usr/share/sonic/device/x86_64-arista_common/*.whl  \
+        "/usr/share/sonic/device/$onie_platform"
+fi
+
+if pip3 show sonic_platform > /dev/null 2>&1; then
+    pip3 uninstall --root-user-action=ignore --yes sonic_platform
+fi
+pip3 install --root-user-action=ignore --no-deps "$pywhl"
+
+systemctl daemon-reload
+
+svcs="$(grep /lib/systemd/system/platform-arista \
+    /var/lib/dpkg/info/sonic-platform-arista-all.list  | sed 's/.*\///')"
+
+for svc in $svcs; do
+    systemctl enable "$svc"
+done
+
+systemctl start --no-block platform-arista.target
+
+exit 0

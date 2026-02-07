@@ -1,0 +1,78 @@
+// Copyright 2022 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Interface for viewing forwarding state.
+syntax = "proto3";
+
+package forwarding;
+
+import "proto/forwarding/forwarding_common.proto";
+import "proto/forwarding/forwarding_port.proto";
+
+option go_package = "github.com/openconfig/lemming/proto/forwarding";
+
+// An InfoListRequest is a request to list all information elements.
+message InfoListRequest {
+  
+}
+
+// An InfoListReply is a list of all information elements.
+message InfoListReply {
+  repeated string names = 1;
+}
+
+// InfoType enumerates the different types of information contained in an
+// information element. The current types of information are:
+// INFO_TYPE_ALL - All information present in the element. It is supported by
+//                 all info elements and does not need any additional arguments.
+// INFO_TYPE_LOOKUP - Information about the lookup of the given frame in the
+//                    specific table.
+// INFO_TYPE_PORT_INPUT  - Information about the input processing of the given
+//                         frame by the specified port.
+// INFO_TYPE_PORT_OUTPUT - Information about the output processing of the given
+//                         frame by the specified port.
+enum InfoType {
+  INFO_TYPE_UNSPECIFIED = 0;
+  INFO_TYPE_ALL = 1;
+  INFO_TYPE_LOOKUP = 2;
+  INFO_TYPE_PORT_INPUT = 3;
+  INFO_TYPE_PORT_OUTPUT = 4;
+}
+
+// An InfoElementRequest is a request for the contents of the specified
+// information element. The request specifies the type of information and
+// arguments if needed by the type of information.
+message InfoElementRequest {
+  string name = 1;
+  InfoType type = 2;
+  bytes frame = 3;  // packet frame if applicable
+
+  // Start header of the frame if applicable. (INFO_TYPE_LOOKUP,
+  // INFO_PORT_INPUT, INFO_PORT_OUTPUT)
+  PacketHeaderId start_header = 4;  
+}
+
+// An InfoElementReply is the contents of the specified information element.
+message InfoElementReply {
+  string content = 1;
+  oneof element_info {
+    PortElementInfo port_info = 2;
+  }
+}
+
+// A PortInfo contains info specific to a Port element.
+message PortElementInfo {
+  PortDesc desc = 1;
+  repeated Counter counters = 2;
+}

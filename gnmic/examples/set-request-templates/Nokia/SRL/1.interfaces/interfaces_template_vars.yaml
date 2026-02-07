@@ -1,0 +1,42 @@
+# © 2022 Nokia.
+#
+# This code is a Contribution to the gNMIc project (“Work”) made under the Google Software Grant and Corporate Contributor License Agreement (“CLA”) and governed by the Apache License 2.0.
+# No other rights or licenses in or to any of Nokia’s intellectual property are granted for any other purpose.
+# This code is provided on an “as is” basis without any warranties of any kind.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+node1:
+  interfaces:
+    - name: # ethernet-1/1
+      admin_state: # "enable" | "disable"
+      description:
+      vlan_tagging: # true || false
+      mtu: 
+      loopback-mode: # true || false
+      ethernet:
+        aggregate_id:
+        auto_negotiate:
+        duplex_mode: 
+        flow_control:
+           receive: # true || false 
+      lag:
+        lag_type:
+        min_links:
+        member_speed:
+        lacp_fallback_mode:
+        lacp_fallback_timeout:
+        lag_speed:
+      subinterface:
+        - admin_state: # "enable" | "disable"
+          ipv4_address:
+          ipv6_address:
+          vlan_id:
+          untagged: {}
+          acl:
+            input:
+              ipv4_filter:
+              ipv6_filter:
+            output:
+              ipv4_filter:
+              ipv6_filter:

@@ -1,0 +1,418 @@
+// Copyright 2022 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Protocol buffers common to various parts of the forwarding api.
+syntax = "proto3";
+
+package forwarding;
+
+option go_package = "github.com/openconfig/lemming/proto/forwarding";
+
+// A ContextId identifies a forwarding context.
+message ContextId {
+  string id = 1;
+}
+
+// A Counter is a counter-id and its value.
+message Counter {
+  CounterId id = 1;
+  uint64 value = 2;
+}
+
+// An ObjectId is a human readable identifier that is assigned by the client.
+// It identifies a forwarding object within a forwarding context, and is used
+// for all operations on the object.
+message ObjectId {
+  string id = 2;
+}
+
+// An ObjectIndex is a numeric identifier that is assigned by lucius.
+// It identifies a forwarding object within a forwarding context, and is used
+// for identifying objects during packet processing.
+message ObjectIndex {
+  uint64 index = 1;
+}
+
+// A SetId identifies a set.
+message SetId {
+  ObjectId object_id = 1;
+}
+
+// PortAction enumerates the types of action sets associated with a port.
+// INPUT is a set of actions applied to packets on ingress.
+// OUTPUT is a set of actions applied to packets on egress.
+// WRITE writes the packet out without applying any actions.
+enum PortAction {
+  PORT_ACTION_UNSPECIFIED = 0;
+  PORT_ACTION_INPUT = 1;
+  PORT_ACTION_OUTPUT = 2;
+  PORT_ACTION_WRITE = 3;
+}
+
+// A PortId identifies a forwarding port.
+message PortId {
+  ObjectId object_id = 1;
+}
+
+// A TableId identifies a forwarding table.
+message TableId {
+  ObjectId object_id = 1;
+}
+
+// PacketHeaderGroup enumerates the groups of packet headers recognized by
+// forwarding.
+enum PacketHeaderGroup {
+  PACKET_HEADER_GROUP_UNSPECIFIED = 0;
+  PACKET_HEADER_GROUP_NONE = 1;
+  PACKET_HEADER_GROUP_PACKET = 2;   // Start of packet.
+  PACKET_HEADER_GROUP_L2 = 3;       // L2 header.
+  PACKET_HEADER_GROUP_L3 = 4;       // L3 header.
+  PACKET_HEADER_GROUP_L4 = 5;       // L4 header.
+  PACKET_HEADER_GROUP_L2_5 = 6; // L2.5 Header (mpls).
+  PACKET_HEADER_GROUP_PAYLOAD = 7;  // Payload.
+  PACKET_HEADER_GROUP_COUNT = 20;
+}
+
+// PacketHeaderId enumerates the packet headers recognized by forwarding.
+// METADATA      - Contains packet attributes that are not encoded in the frame
+// ETHERNET      - Ethernet frame
+// ETHERNET_VLAN - Single tag in an ethernet frame
+// ETHERNET_1Q   - Pair of tags in an ethernet frame
+// IP4           - IP4 header as the packet or tunnel header
+// IP6           - IP6 header as the packet or tunnel header
+// IP            - IP header which may be IP4 or IP6
+// GRE           - GRE header in the GRE tunnel
+// TCP           - TCP header in the payload
+// UDP           - UDP header in the payload
+// ARP           - ARP message in the ethernet frame
+// ICMP4         - ICMP message in a IP4 header
+// OPAQUE        - Represents opaque data
+// ICMP6         - ICMP message in a IP6 header
+// TUNNEL_6TO4_AUTO - IP4 header carrying IP6 where
+//    pkt_inner_dip[127:112]=16’h2002 &
+//    pkt_outer_dip[31:0]=pkt_inner_dip[111:80]
+//    This used only for encap/decap and is defined by RFC 3056.
+// TUNNEL_6TO4_SECURE - IP4 header carrying IP6 where
+//    pkt_inner_sip[127:112]=16’h2002 &
+//    pkt_outer_sip[31:0]=pkt_inner_sip[111:80]
+//    pkt_inner_dip[127:112]=16’h2002 &
+//    pkt_outer_dip[31:0]=pkt_inner_dip[111:80]
+//    This used only for encap/decap and is defined by RFC 3056.
+enum PacketHeaderId {
+  PACKET_HEADER_ID_UNSPECIFIED = 0;
+  PACKET_HEADER_ID_NONE = 1;
+  PACKET_HEADER_ID_METADATA = 2;
+  PACKET_HEADER_ID_ETHERNET = 3;
+  PACKET_HEADER_ID_ETHERNET_VLAN = 4;
+  PACKET_HEADER_ID_ETHERNET_1Q = 5;
+  PACKET_HEADER_ID_IP4 = 6;
+  PACKET_HEADER_ID_IP6 = 7;
+  PACKET_HEADER_ID_GRE = 8;
+  PACKET_HEADER_ID_TCP = 9;
+  PACKET_HEADER_ID_UDP = 10;
+  PACKET_HEADER_ID_ARP = 11;
+  PACKET_HEADER_ID_ICMP4 = 12;
+  PACKET_HEADER_ID_OPAQUE = 13;
+  PACKET_HEADER_ID_ICMP6 = 14;
+  PACKET_HEADER_ID_TUNNEL_6TO4_AUTO = 15;
+  PACKET_HEADER_ID_TUNNEL_6TO4_SECURE = 16;
+  PACKET_HEADER_ID_IP = 19;
+  PACKET_HEADER_ID_MPLS = 20;
+  PACKET_HEADER_ID_COUNT = 1000;
+}
+
+// PacketFieldNum enumerates the packet fields recognized by forwarding.
+enum PacketFieldNum {
+  PACKET_FIELD_NUM_UNSPECIFIED = 0;
+  PACKET_FIELD_NUM_NONE = 1;
+  PACKET_FIELD_NUM_ETHER_MAC_SRC = 2;  // ethernet source mac address.
+  PACKET_FIELD_NUM_ETHER_MAC_DST = 3;  // ethernet destination mac address.
+  PACKET_FIELD_NUM_ETHER_TYPE = 4;     // ethernet type.
+  PACKET_FIELD_NUM_VLAN_TAG = 5;       // vlan tag.
+  PACKET_FIELD_NUM_VLAN_PRIORITY = 6;  // vlan priority.
+  PACKET_FIELD_NUM_IP_VERSION = 7;     // IP version of the packet.
+  PACKET_FIELD_NUM_IP_ADDR_SRC = 8;    // 16B IP source address (v4 or v6)
+  PACKET_FIELD_NUM_IP_ADDR_DST = 9;    // 16B IP destination address (v4 or v6).
+  PACKET_FIELD_NUM_IP_HOP = 10;        // IP hop limit (v6) or ttl (v4).
+  PACKET_FIELD_NUM_IP_PROTO = 11;      // IP protocol.
+  PACKET_FIELD_NUM_IP_QOS = 12;        // IP qos bits.
+  PACKET_FIELD_NUM_IP6_FLOW = 13;      // IPv6 flow label.
+  PACKET_FIELD_NUM_PACKET_PORT_INPUT = 14;   // Packet input port.
+  PACKET_FIELD_NUM_PACKET_PORT_OUTPUT = 15;  // Packet output port.
+  PACKET_FIELD_NUM_PACKET_LENGTH = 16;       // Packet length.
+  PACKET_FIELD_NUM_ICMP_TYPE = 17;           // ICMP type.
+  PACKET_FIELD_NUM_ICMP_CODE = 18;           // ICMP code.
+  PACKET_FIELD_NUM_L4_PORT_SRC = 19;         // L4 source port (UDP or TCP).
+  PACKET_FIELD_NUM_L4_PORT_DST = 20;      // L4 destination port (UDP or TCP).
+  PACKET_FIELD_NUM_TCP_FLAGS = 21;        // TCP flags.
+  PACKET_FIELD_NUM_ARP_TPA = 22;          // ARP target protocol address.
+  PACKET_FIELD_NUM_GRE_KEY = 23;          // GRE key.
+  PACKET_FIELD_NUM_GRE_SEQUENCE = 24;     // GRE sequence.
+  PACKET_FIELD_NUM_PACKET_VRF = 25;       // VRF ID.
+  PACKET_FIELD_NUM_ICMP6_ND_TARGET = 26;  // ICMPv6 ND target address.
+  PACKET_FIELD_NUM_ICMP6_ND_SLL = 27;  // ICMPv6 ND source link-layer address.
+  PACKET_FIELD_NUM_ICMP6_ND_TLL = 28;  // ICMPv6 ND target link-layer address.
+  PACKET_FIELD_NUM_PACKET_ATTRIBUTE_32 = 34;  // 32-bit packet attributes.
+  PACKET_FIELD_NUM_PACKET_ATTRIBUTE_16 = 46;  // 16-bit packet attributes.
+  PACKET_FIELD_NUM_PACKET_ATTRIBUTE_8 = 49;   // 8-bit packet attributes.
+  PACKET_FIELD_NUM_PACKET_ATTRIBUTE_24 = 50;  // 24-bit packet attributes.
+  PACKET_FIELD_NUM_ARP_TMAC = 52;             // ARP target mac address.
+  PACKET_FIELD_NUM_ARP_SMAC = 53;             // ARP source mac address.
+  PACKET_FIELD_NUM_ARP_SPA = 54;              // ARP source protocol address.
+  PACKET_FIELD_NUM_NEXT_HOP_IP = 56; // Next hop ip (metadata).
+  PACKET_FIELD_NUM_NEXT_HOP_GROUP_ID = 57; // Next hop group id (metadata).
+  PACKET_FIELD_NUM_NEXT_HOP_ID = 58; // Next hop id (metadata).
+  PACKET_FIELD_NUM_TRAP_ID = 59; // Trap id (metadata).
+  PACKET_FIELD_NUM_INPUT_IFACE = 60; // Input L3 interface (metadata).
+  PACKET_FIELD_NUM_OUTPUT_IFACE = 61; // Output L3 interface (metadata).
+  PACKET_FIELD_NUM_TUNNEL_ID = 62; // Tunnel ID (metadata).
+  PACKET_FIELD_NUM_HOST_PORT_ID = 63; // Host port id (metadata).
+  PACKET_FIELD_NUM_L2MC_GROUP_ID = 64; // L2MC Group id (metadata).
+  PACKET_FIELD_NUM_POLICER_ID = 65; // Policer id (metadata).
+  PACKET_FIELD_NUM_MPLS_LABEL = 66; // MPLS Label
+  PACKET_FIELD_NUM_MPLS_TC = 67; // MPLS Traffic Class
+  PACKET_FIELD_NUM_MPLS_TTL = 68; // MPLS TTL
+  PACKET_FIELD_NUM_TARGET_EGRESS_PORT = 69; // Original output port (metadata)
+  PACKET_FIELD_NUM_PACKET_ACTION = 70; // Action to take on the packet (metdata)
+  PACKET_FIELD_NUM_COUNT = 1000;
+}
+
+// PacketBytes identifies a set of bytes within the packet.
+message PacketBytes {
+  PacketHeaderGroup header_group = 1;
+  uint32 instance = 2;  // Instance of the header.
+  uint32 offset = 3;    // Offset in bytes within the header.
+  uint32 size = 4;      // Size in bytes.
+}
+
+// PacketField identfies a field within the packet.
+message PacketField {
+  PacketFieldNum field_num = 1;
+  uint32 instance = 2;  // Instance of the field.
+}
+
+// PacketFieldId identifies a packet field. The field is either identified
+// using an enumeration (PacketField) or a set of bytes (PacketByte)
+message PacketFieldId {
+  PacketField field = 1;
+  PacketBytes bytes = 2;
+}
+
+// A PacketFieldBytes describes the value of a field as a series of bytes.
+message PacketFieldBytes {
+  PacketFieldId field_id = 1;
+  bytes bytes = 2;
+}
+
+// A PacketFieldMaskedBytes describes bits within a packet field as a series of
+// bytes and masks.
+message PacketFieldMaskedBytes {
+  PacketFieldId field_id = 1;
+  bytes bytes = 2;
+  bytes masks = 3;
+}
+
+// A PacketFieldSet describes the value of a field as one of a set of bytes.
+// The set must reference to a precreated forwarding set with the appropriate
+// values.
+message PacketFieldSet {
+  PacketFieldId field_id = 1;
+  SetId set_id = 2;
+}
+
+// CounterId enumerates the various counters that may be maintained.
+enum CounterId {
+  COUNTER_ID_UNSPECIFIED = 0;      // Represents a non existing counter.
+  COUNTER_ID_RX_PACKETS = 1;       // Number of received packets.
+  COUNTER_ID_RX_OCTETS = 2;        // Number of received octets.
+  COUNTER_ID_RX_DROP_PACKETS = 3;  // Number of packets dropped after receiving.
+  COUNTER_ID_RX_DROP_OCTETS = 4;   // Number of octets dropped after receiving.
+  COUNTER_ID_RX_ERROR_PACKETS =
+      5;  // Number of packets with errors after receiving.
+  COUNTER_ID_RX_ERROR_OCTETS =
+      6;                      // Number of octets with error after receiving.
+  COUNTER_ID_TX_PACKETS = 7;  // Number of packets that were enqueued for TX.
+  COUNTER_ID_TX_OCTETS = 8;   // Number of octets that were enqueued for TX .
+  COUNTER_ID_TX_DROP_PACKETS =
+      9;  // Number of packets dropped after TX enqueue.
+  COUNTER_ID_TX_DROP_OCTETS = 10;  // Number of octets dropped after TX enqueue.
+  COUNTER_ID_TX_ERROR_PACKETS =
+      11;  // Number of packets with errors after TX enqueue.
+  COUNTER_ID_TX_ERROR_OCTETS =
+      12;  // Number of octets with error after after TX enqueue.
+  COUNTER_ID_RATELIMIT_PACKETS = 13;  // Number of ratelimit packets.
+  COUNTER_ID_RATELIMIT_OCTETS = 14;   // Number of ratelimit octets.
+  COUNTER_ID_DROP_PACKETS = 15;       // Number of dropped packets.
+  COUNTER_ID_DROP_OCTETS = 16;        // Number of dropped octets.
+  COUNTER_ID_ERROR_PACKETS = 17;      // Number of error packets.
+  COUNTER_ID_ERROR_OCTETS = 18;       // Number of error octets.
+  COUNTER_ID_RX_BAD_PACKETS = 19;     // Number of bad packets.
+  COUNTER_ID_RX_BAD_OCTETS = 20;      // Number of bad octets.
+  COUNTER_ID_RX_ADMIN_DROP_PACKETS =
+      21;  // Number of packets dropped due to an administrative reason.
+  COUNTER_ID_RX_ADMIN_DROP_OCTETS =
+      22;  // Number of octets dropped due to an administrative reason.
+  COUNTER_ID_TX_ADMIN_DROP_PACKETS =
+      23;  // Number of packets dropped due to an administrative reason.
+  COUNTER_ID_TX_ADMIN_DROP_OCTETS =
+      24;  // Number of octets dropped due to an administrative reason.
+  COUNTER_ID_MIRROR_PACKETS = 25;        // Number of mirror packets.
+  COUNTER_ID_MIRROR_OCTETS = 26;         // Number of mirror octets.
+  COUNTER_ID_MIRROR_ERROR_PACKETS = 27;  // Number of mirror error packets.
+  COUNTER_ID_MIRROR_ERROR_OCTETS = 28;   // Number of mirror error octets.
+  COUNTER_ID_ENCAP_ERROR_PACKETS = 29;   // Number of encap error packets.
+  COUNTER_ID_ENCAP_ERROR_OCTETS = 30;    // Number of encap error octets.
+  COUNTER_ID_DECAP_ERROR_PACKETS = 31;   // Number of decap error packets.
+  COUNTER_ID_DECAP_ERROR_OCTETS = 32;    // Number of decap error octets.
+  COUNTER_ID_FLOW_COUNTER_OCTETS =
+      33;  // The byte_count value of flow counters.
+  COUNTER_ID_FLOW_COUNTER_PACKETS =
+      34;  // The packet_count value of flow counters.
+  COUNTER_ID_RX_DEBUG_PACKETS =
+      35;  // Number of packet debugged after receiving.
+  COUNTER_ID_RX_DEBUG_OCTETS =
+      36;                // Number of octets debugged after receiving.
+  COUNTER_ID_RX_UCAST_PACKETS = 37;
+  COUNTER_ID_RX_NON_UCAST_PACKETS = 38;
+  COUNTER_ID_TX_UCAST_PACKETS = 39;
+  COUNTER_ID_TX_NON_UCAST_PACKETS = 40;
+  COUNTER_ID_TX_BROADCAST_PACKETS = 41;
+  COUNTER_ID_TX_MULTICAST_PACKETS = 42;
+  COUNTER_ID_MAX = 255;  // Maximum counter id.
+}
+
+// An ObjectCountersRequest is a request for counters of an object
+// associated with the specified id.
+message ObjectCountersRequest {
+  ObjectId object_id = 1;
+  ContextId context_id = 2;
+}
+message ObjectCountersReply {
+  repeated Counter counters = 1;
+}
+
+// An ObjectDeleteRequest is a request to delete an existing object
+// associated with the specified id.
+message ObjectDeleteRequest {
+  ObjectId object_id = 1;
+  ContextId context_id = 2;
+}
+
+message ObjectDeleteReply {
+
+}
+
+// A ObjectListRequest is a request of all objects within forwarding.
+message ObjectListRequest {
+  ContextId context_id = 2;
+}
+message ObjectListReply {
+  repeated ObjectId objects = 1;
+}
+
+// A ContextCreateRequest is a request to create a context with the specified
+// ID.
+message ContextCreateRequest {
+  ContextId context_id = 1;
+}
+
+message ContextCreateReply {
+
+}
+
+// A ContextDeleteRequest is a request to delete a context with the specified
+// ID. Note that all objects in the context are implicitly deleted.
+message ContextDeleteRequest {
+  ContextId context_id = 1;
+}
+message ContextDeleteReply {
+
+}
+
+// A ContextAttr contains the attributes of a forwarding context.
+message ContextAttr {
+  ContextId context_id = 1;
+}
+
+// A ContextListRequest is a request to list all the contexts.
+message ContextListRequest {
+
+}
+
+message ContextListReply {
+  repeated ContextAttr contexts = 1;
+}
+
+// A SetCreateRequest is a request to create an empty set
+// identified by set_id in the specified forwarding context.
+message SetCreateRequest {
+  ContextId context_id = 1;
+  SetId set_id = 3;
+}
+message SetCreateReply {
+  ObjectIndex object_index = 2;
+}
+
+// A SetUpdateRequest is a request to update the set of strings in a
+// set.
+message SetUpdateRequest {
+  ContextId context_id = 1;
+  SetId set_id = 2;
+  repeated bytes bytes = 3;
+}
+
+message SetUpdateReply {
+
+}
+
+// An Id uniquely identifies a flow counter, within the specified forwarding
+// context.
+message FlowCounterId {
+  ObjectId object_id = 1;
+}
+
+// The value contained in the flow counter, along with an identifier for it.
+message FlowCounter {
+  FlowCounterId id = 1;
+  uint64 octets = 2;
+  uint64 packets = 3;
+}
+
+// A FlowCounterCreateRequest is a request to create a per flow counter.
+message FlowCounterCreateRequest {
+  ContextId context_id = 1;
+  FlowCounterId id = 2;
+}
+
+message FlowCounterCreateReply {
+  
+}
+
+// A FlowCounterQueryRequest is a request to read a bunch of flow counters.
+message FlowCounterQueryRequest {
+  ContextId context_id = 1;
+  repeated FlowCounterId ids = 2;
+}
+message FlowCounterQueryReply {
+  repeated FlowCounter counters = 1;
+}
+
+message ObjectNIDRequest {
+  ContextId context_id = 1;
+  ObjectId object_id = 2;
+}
+
+message ObjectNIDReply {
+  uint64 nid = 1;
+}

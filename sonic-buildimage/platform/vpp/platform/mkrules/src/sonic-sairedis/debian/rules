@@ -1,0 +1,75 @@
+#!/usr/bin/make -f
+# See debhelper(7) (uncomment to enable)
+# output every command that modifies files on the build system.
+#export DH_VERBOSE = 1
+
+ifneq (${SWSS_COMMON_INC},)
+	SWSS_COMMON_CONFIG = "--with-swss-common-inc=${SWSS_COMMON_INC}"
+endif
+
+ifneq (${SWSS_COMMON_LIB},)
+	SWSS_COMMON_CONFIG += "--with-swss-common-lib=${SWSS_COMMON_LIB}"
+	LD_LIBRARY_PATH_CONFIG = LD_LIBRARY_PATH=${SWSS_COMMON_LIB}
+endif
+
+# see FEATURE AREAS in dpkg-buildflags(1)
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+
+# see ENVIRONMENT in dpkg-buildflags(1)
+# package maintainers to append CFLAGS
+#export DEB_CFLAGS_MAINT_APPEND  = -Wall -pedantic
+# package maintainers to append LDFLAGS
+#export DEB_LDFLAGS_MAINT_APPEND = -Wl,--as-needed
+
+DOPACKAGES = $(shell dh_listpackages)
+
+configure_opts = --disable-static
+ifeq ($(ENABLE_ASAN), y)
+	configure_opts += --enable-asan
+endif
+
+# For Debian jessie, stretch, and buster, and Ubuntu bionic and focal, build
+# Python 2 bindings. This is controlled by the build profile being used.
+ifeq (,$(filter nopython2,$(DEB_BUILD_PROFILES)))
+configure_opts += --enable-python2
+else
+configure_opts += --disable-python2
+endif
+
+ifneq ($(filter syncd,$(DEB_BUILD_PROFILES)),)
+ifneq ($(filter rpc,$(DEB_BUILD_PROFILES)),)
+configure_opts += --enable-rpcserver
+endif
+ifneq ($(filter vpp,$(DEB_BUILD_PROFILES)),)
+configure_opts += --with-sai=vpp
+endif
+else
+configure_opts += --disable-syncd
+endif
+
+%:
+	dh $@
+
+# dh_make generated override targets
+# This is example for Cmake (See https://bugs.debian.org/641051 )
+#override_dh_auto_configure:
+#	dh_auto_configure -- \
+#	-DCMAKE_LIBRARY_PATH=$(DEB_HOST_MULTIARCH)
+
+override_dh_auto_configure:
+	dh_auto_configure -- ${SWSS_COMMON_CONFIG} $(configure_opts)
+
+override_dh_install:
+	dh_install
+	# Note: escape $ with an extra $ symbol
+ifneq ($(filter rpc,$(DEB_BUILD_PROFILES)),)
+	if [ -f debian/syncd-rpc/usr/bin/syncd_init_common.sh ] ; then
+		sed -i 's|ENABLE_SAITHRIFT=0|ENABLE_SAITHRIFT=1 # Add a comment to fix https://github.com/Azure/sonic-buildimage/issues/2694 |' debian/syncd-rpc/usr/bin/syncd_init_common.sh
+	fi
+endif
+
+override_dh_installinit:
+	dh_installinit --init-script=syncd
+
+override_dh_shlibdeps:
+	$(LD_LIBRARY_PATH_CONFIG) dh_shlibdeps -- --ignore-missing-info -xlibsai

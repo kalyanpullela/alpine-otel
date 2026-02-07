@@ -1,0 +1,66 @@
+#!/usr/bin/make -f
+# See debhelper(7) (uncomment to enable)
+# output every command that modifies files on the build system.
+#export DH_VERBOSE = 1
+
+include /usr/share/dpkg/pkg-info.mk
+#--------------------------------------------------------
+
+export INSTALL_MOD_DIR:=extra
+
+PYTHON3         ?= python3
+
+PACKAGE_PRE_NAME := sonic-platform-marvell
+KVERSION   ?= $(shell uname -r)
+KERNEL_SRC :=  /lib/modules/$(KVERSION)
+MOD_SRC_DIR:= $(shell pwd)
+MODULE_DIRS:= dbmvtx9180
+SERVICE_DIR := service
+PLATFORM_DIR := sonic_platform
+
+%:
+	dh $@ --with python3 --buildsystem=pybuild --pybuild-system=setuptools
+
+override_dh_auto_clean:
+	(for mod in $(MODULE_DIRS); do \
+		make clean -C $(KERNEL_SRC)/build M=$(MOD_SRC_DIR)/$${mod}/modules; \
+		if [ -f $(MOD_SRC_DIR)/$${mod}/setup.py ]; then \
+			pybuild --clean -d $${mod}; \
+		fi; \
+	done)
+	dh_clean
+
+override_dh_auto_configure:
+	(set -e; for mod in $(MODULE_DIRS); do \
+		if [ -f $(MOD_SRC_DIR)/$${mod}/setup.py ]; then \
+			pybuild --configure -d $${mod}; \
+		fi; \
+	done)
+
+override_dh_auto_build:
+	(for mod in $(MODULE_DIRS); do \
+		make modules -C $(KERNEL_SRC)/build M=$(MOD_SRC_DIR)/$${mod}/modules; \
+		cd $(MOD_SRC_DIR)/$${mod}; \
+		if [ -f setup.py ]; then \
+			python3 setup.py bdist_wheel -d $(MOD_SRC_DIR)/$${mod}; \
+			echo "Finished making whl package for $$mod"; \
+		fi; \
+		cd $(MOD_SRC_DIR); \
+	done)
+
+override_dh_auto_test:
+	# No tests to run
+
+override_dh_usrlocal:
+	# Skip dh_usrlocal because we manually install files to /usr/local/bin
+
+override_dh_auto_install:
+	# Custom package commands
+	(set -e; for mod in $(MODULE_DIRS); do \
+		dh_installdirs -p$(PACKAGE_PRE_NAME)-$${mod} /usr/local/bin; \
+		dh_installdirs -p$(PACKAGE_PRE_NAME)-$${mod} lib/systemd/system; \
+		cp $(MOD_SRC_DIR)/$${mod}/$(SERVICE_DIR)/*.service debian/$(PACKAGE_PRE_NAME)-$${mod}/lib/systemd/system/; \
+		if [ -f $(MOD_SRC_DIR)/$${mod}/setup.py ]; then \
+			PYBUILD_NAME=$${mod} pybuild --install -d $${mod} --dest-dir $(MOD_SRC_DIR)/debian/$(PACKAGE_PRE_NAME)-$${mod}; \
+		fi; \
+	done)

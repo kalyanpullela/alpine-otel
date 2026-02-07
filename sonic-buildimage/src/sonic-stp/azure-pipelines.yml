@@ -1,0 +1,48 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+pool: sonicso1ES-amd64
+
+trigger:
+  branches:
+    include:
+    - master
+
+pr:
+  branches:
+    include:
+    - master
+
+stages:
+- stage: Build
+
+  jobs:
+  - template: .azure-pipelines/build-template.yml
+    parameters:
+      arch: amd64
+      sonic_slave: sonic-slave-bookworm
+      swss_common_artifact_name: sonic-swss-common-bookworm
+      artifact_name: sonic-stp
+
+- stage: BuildArm
+  dependsOn: []
+  jobs:
+  - template: .azure-pipelines/build-template.yml
+    parameters:
+      arch: armhf
+      timeout: 180
+      pool: sonicso1ES-armhf
+      sonic_slave: sonic-slave-bookworm-armhf
+      swss_common_artifact_name: sonic-swss-common-bookworm.armhf
+      artifact_name: sonic-stp.armhf
+
+  - template: .azure-pipelines/build-template.yml
+    parameters:
+      arch: arm64
+      timeout: 180
+      pool: sonicso1ES-arm64
+      sonic_slave: sonic-slave-bookworm-arm64
+      swss_common_artifact_name: sonic-swss-common-bookworm.arm64
+      artifact_name: sonic-stp.arm64

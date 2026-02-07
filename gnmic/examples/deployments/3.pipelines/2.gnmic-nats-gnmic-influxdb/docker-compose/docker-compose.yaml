@@ -1,0 +1,66 @@
+# © 2022 Nokia.
+#
+# This code is a Contribution to the gNMIc project (“Work”) made under the Google Software Grant and Corporate Contributor License Agreement (“CLA”) and governed by the Apache License 2.0.
+# No other rights or licenses in or to any of Nokia’s intellectual property are granted for any other purpose.
+# This code is provided on an “as is” basis without any warranties of any kind.
+#
+# SPDX-License-Identifier: Apache-2.0
+
+version: '3' 
+
+networks:
+  gnmic-net:
+    driver: bridge
+
+services:
+  gnmic-collector: &gnmic
+    image: ghcr.io/openconfig/gnmic:latest
+    container_name: gnmic-collector
+    volumes:
+      - ./gnmic-collector.yaml:/app/gnmic.yaml
+    command: "subscribe --config /app/gnmic.yaml"
+    networks:
+      - gnmic-net
+    depends_on:
+      - nats
+      - influxdb
+
+  gnmic-relay:
+    <<: *gnmic
+    container_name: gnmic-relay
+    volumes:
+      - ./gnmic-relay.yaml:/app/gnmic.yaml
+    depends_on:
+      - nats
+      - influxdb
+
+  influxdb:
+    image: influxdb:1.8.10
+    container_name: influxdb
+    networks:
+      - gnmic-net
+    ports:
+      - "8083:8083"
+      - "8086:8086"
+      - "8090:8090"
+    environment:
+      - INFLUXDB_DATA_ENGINE=tsm1
+      - INFLUXDB_REPORTING_DISABLED=false
+      - INFLUXDB_USER=gnmic
+      - INFLUXDB_USER_PASSWORD=gnmic
+      - INFLUXDB_DB=telemetry
+    volumes:
+      - influx-storage:/var/lib/influxdb
+  
+  nats:
+    image: 'nats:latest'
+    container_name: nats
+    networks:
+      - gnmic-net    
+    ports:
+      - "4222:4222"
+      - "6222:6222"
+      - "8222:8222"
+
+volumes:
+  influx-storage:

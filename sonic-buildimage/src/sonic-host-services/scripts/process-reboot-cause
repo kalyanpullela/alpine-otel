@@ -1,0 +1,127 @@
+#!/usr/bin/env python3
+#
+# process-reboot-cause
+#
+# Program designed to read the previous reboot-cause files, log the last previous reboot-cause.
+# And read the saved reboot-cause history files and save the reboot cause in the state-db.
+#
+
+try:
+    import json
+    import logging
+    import os
+    import pwd
+    import sys
+
+    from swsscommon import swsscommon
+    from sonic_py_common import syslogger
+    from sonic_py_common import device_info
+except ImportError as err:
+    raise ImportError("%s - required module not found" % str(err))
+
+VERSION = "1.0"
+CHASSIS_SERVER_PORT = 6380
+
+SYSLOG_IDENTIFIER = "process-reboot-cause"
+
+REBOOT_CAUSE_DIR = "/host/reboot-cause/"
+REBOOT_CAUSE_HISTORY_DIR = "/host/reboot-cause/history/"
+PREVIOUS_REBOOT_CAUSE_FILE = os.path.join(REBOOT_CAUSE_DIR, "previous-reboot-cause.json")
+USER_ISSUED_REBOOT_CAUSE_REGEX ="User issued \'{}\' command [User: {}, Time: {}]"
+
+REBOOT_CAUSE_UNKNOWN = "Unknown"
+REBOOT_CAUSE_TABLE_NAME = "REBOOT_CAUSE"
+MAX_HISTORY_FILES = 10
+
+REDIS_HOSTIP = "127.0.0.1"
+state_db = None
+
+# Global logger class instance
+sonic_logger = syslogger.SysLogger(SYSLOG_IDENTIFIER)
+
+
+# ============================= Functions =============================
+def read_reboot_cause_files_and_save_to_db(device='npu'):
+    # Connect State DB
+    if device == 'npu':
+        db = swsscommon.SonicV2Connector(host=REDIS_HOSTIP)
+        table = db.STATE_DB
+        history_dir = REBOOT_CAUSE_HISTORY_DIR
+    else:
+        db = swsscommon.SonicV2Connector(host="redis_chassis.server", port=CHASSIS_SERVER_PORT)
+        table = db.CHASSIS_STATE_DB
+        history_dir = os.path.join('/host/reboot-cause/module', device , 'history')
+    db.connect(table)
+
+    # Sort the previous reboot cause files by creation time
+    REBOOT_FILE_LIST = [os.path.join(history_dir, i) for i in os.listdir(history_dir)]
+    TIME_SORTED_FULL_REBOOT_FILE_LIST = sorted(REBOOT_FILE_LIST, key=os.path.getmtime, reverse=True)
+
+    data = []
+    # Read each sorted previous reboot cause file and update the state db with previous reboot cause information
+    for i in range(min(MAX_HISTORY_FILES, len(TIME_SORTED_FULL_REBOOT_FILE_LIST))):
+        x = TIME_SORTED_FULL_REBOOT_FILE_LIST[i]
+        if os.path.isfile(x):
+            with open(x, "r") as cause_file:
+                try:
+                    data = json.load(cause_file)
+                    if device == 'npu':
+                        _hash = '{}|{}'.format(REBOOT_CAUSE_TABLE_NAME, data['gen_time'])
+                    else:
+                        # Ensure keys exist
+                        if 'name' not in data:
+                            sonic_logger.log_warning(f"Missing 'name' in reboot-cause file")
+                            continue  # Skip this file
+                        _hash = f"{REBOOT_CAUSE_TABLE_NAME}|{device.upper()}|{data['name']}"
+                    db.set(table, _hash, 'cause', data.get('cause', ''))
+                    db.set(table, _hash, 'time', data.get('time', ''))
+                    db.set(table, _hash, 'user', data.get('user', ''))
+                    db.set(table, _hash, 'comment', data.get('comment', ''))
+                except json.decoder.JSONDecodeError as je:
+                    sonic_logger.log_error("Unable to process reload cause file {}: {}".format(x, je))
+                    pass
+
+    if len(TIME_SORTED_FULL_REBOOT_FILE_LIST) > MAX_HISTORY_FILES:
+        for i in range(len(TIME_SORTED_FULL_REBOOT_FILE_LIST)):
+            if i >= MAX_HISTORY_FILES:
+                x = TIME_SORTED_FULL_REBOOT_FILE_LIST[i]
+                os.remove(x)
+
+def main():
+    # Configure logger to log all messages INFO level and higher
+    sonic_logger.set_min_log_priority(logging.INFO)
+
+    sonic_logger.log_info("Starting up...")
+
+    if not os.geteuid() == 0:
+        sonic_logger.log_error("User {} does not have permission to execute".format(pwd.getpwuid(os.getuid()).pw_name))
+        sys.exit("This utility must be run as root")
+
+    # Set a default previous reboot cause
+    previous_reboot_cause = REBOOT_CAUSE_UNKNOWN
+
+    # Read the most recent reboot cause file and log data to syslog
+    if os.path.exists(PREVIOUS_REBOOT_CAUSE_FILE):
+        with open(PREVIOUS_REBOOT_CAUSE_FILE, "r") as last_cause_file:
+            data = json.load(last_cause_file)
+            if data['user']:
+                previous_reboot_cause = USER_ISSUED_REBOOT_CAUSE_REGEX.format(data['cause'], data['user'], data['time'])
+            else:
+                previous_reboot_cause = "{}".format(data['cause'])
+
+    # Log the last reboot cause to the syslog
+    sonic_logger.log_info("Previous reboot cause: {}".format(previous_reboot_cause))
+
+    if os.path.exists(REBOOT_CAUSE_HISTORY_DIR):
+        # Read the previous npu reboot cause from saved reboot-cause files
+        # Save the previous npu reboot cause upto 10 entry to the state db
+        read_reboot_cause_files_and_save_to_db('npu')
+        # Read the previous dpu reboot cause from saved reboot-cause files
+        # Save the previous dpu reboot cause upto 10 entry to the state db
+        if device_info.is_smartswitch():
+            dpu_list = device_info.get_dpu_list()
+            for dpu in dpu_list:
+                read_reboot_cause_files_and_save_to_db(dpu)
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,46 @@
+apiVersion: skaffold/v3alpha1
+kind: Config
+metadata:
+  name: lemming-operator
+build:
+  tagPolicy:
+    gitCommit:
+      ignoreChanges: true
+  artifacts:
+  - image: us-west1-docker.pkg.dev/openconfig-lemming/release/operator
+    bazel:
+      target: //operator:image-tar
+manifests:
+  kustomize:
+    paths:
+    - operator/config/default
+deploy:
+  kubectl: {}
+---
+apiVersion: skaffold/v3alpha1
+kind: Config
+metadata:
+  name: lemming
+requires:
+- configs:
+  - lemming-operator
+build:
+  tagPolicy:
+    gitCommit:
+      ignoreChanges: true
+  artifacts:
+  - image: us-west1-docker.pkg.dev/openconfig-lemming/release/lemming
+    bazel:
+      target: //cmd/lemming:image-tar
+manifests:
+  rawYaml:
+  - operator/config/samples/lemming_v1alpha1_lemming.yaml
+deploy:
+  kubectl: {}
+resourceSelector:
+  allow:
+  - groupKind: Lemming.lemming.openconfig.net
+    image:
+    - .*
+    labels:
+    - .*

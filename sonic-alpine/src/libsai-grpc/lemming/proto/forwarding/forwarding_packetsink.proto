@@ -1,0 +1,68 @@
+// Copyright 2022 Google LLC
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// Interface for consuming packets.
+syntax = "proto3";
+
+package forwarding;
+
+import "proto/forwarding/forwarding_action.proto";
+import "proto/forwarding/forwarding_common.proto";
+import "proto/forwarding/forwarding_port.proto";
+
+option go_package = "github.com/openconfig/lemming/proto/forwarding";
+
+// PacketInjectRequest is a request to inject frames into the port.
+message PacketInjectRequest {
+  PortId port_id = 1;        // Port used to process the packet
+  ContextId context_id = 2;  // Context containing the port
+  bytes bytes = 3;           // Bytes in the L2 frame
+  PortAction action = 4;     // Select a set of actions on the port
+  repeated ActionDesc preprocesses =
+      7;               // Actions used to preprocess the packet
+  PacketHeaderId start_header = 10;
+  repeated PacketFieldBytes parsed_fields =
+      11;           // List of fields describing the L2 frame
+  bool debug = 12;  // Whether to turn on debug messages.
+}
+
+message PacketInjectResponse {
+  
+}
+
+// PacketSinkRequest is a request to receive packets from the CPU port.
+message PacketSinkRequest {
+  ContextId context_id = 1;  // Context containing the port
+}
+
+message PacketSinkPacketInfo {
+  bytes bytes = 1;           // Bytes in the L2 frame
+  PortId port_id = 2;        // Port used to process the packet
+  PortId ingress = 3;  // Identifies the ingress of the packet
+  PortId egress = 4;   // Identifies the egress of the packet
+  repeated PacketFieldBytes parsed_fields =
+      5;           // List of fields describing the L2 frame
+}
+
+message PacketSinkPortInfo {
+  PortDesc port = 1;
+}
+
+// PacketSinkResponse is either the description of the port or a packet.
+message PacketSinkResponse {
+  oneof resp {
+    PacketSinkPacketInfo packet = 1;
+    PacketSinkPortInfo port = 2;
+  }
+}

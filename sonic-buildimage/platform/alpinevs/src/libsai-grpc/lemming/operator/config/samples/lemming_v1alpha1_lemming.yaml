@@ -1,0 +1,20 @@
+apiVersion: lemming.openconfig.net/v1alpha1
+kind: Lemming
+metadata:
+  name: lemming-sample
+spec:
+  image: us-west1-docker.pkg.dev/openconfig-lemming/release/lemming:ga
+  initImage: us-west1-docker.pkg.dev/kne-external/kne/networkop/init-wait:ga
+  command: "/lemming/lemming"
+  args: ["--alsologtostderr"]
+  ports:
+    gnmi:
+      innerPort: 9339
+      outerPort: 9339
+    gribi:
+      innerPort: 9340
+      outerPort: 9340
+  tls:
+    selfSigned:
+      commonName: "lemming-sample"
+      keySize: 2048

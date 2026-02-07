@@ -1,0 +1,23 @@
+name: "bazel build"
+  
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  schedule:
+    - cron: "0 0 * * *"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      BAZEL: bazelisk-linux-amd64
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Setup Bazel
+        uses: bazelbuild/setup-bazelisk@v3 
+      - name: Build
+        run: bazel build //...

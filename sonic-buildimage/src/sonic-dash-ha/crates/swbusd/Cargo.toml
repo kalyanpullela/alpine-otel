@@ -1,0 +1,27 @@
+[package]
+name = "swbusd"
+description = "SONiC Switch Bus Daemon"
+categories = ["command-line-utilities", "network-programming"]
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+documentation.workspace = true
+keywords.workspace = true
+edition.workspace = true
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio.workspace = true
+tokio-stream.workspace = true
+tonic.workspace = true
+tracing.workspace = true
+clap = { version = "4.0", features = ["derive"] }
+
+# Internal dependencies
+swbus-core.workspace = true
+sonic-common.workspace = true
+swbus-config.workspace = true
+[lints]
+workspace = true

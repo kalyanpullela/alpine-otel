@@ -1,0 +1,60 @@
+#!/usr/bin/make -f
+
+include /usr/share/dpkg/pkg-info.mk
+
+#export DH_VERBOSE = 1
+
+export INSTALL_MOD_DIR:=extra
+
+KVERSION_SHORT ?=
+ARCH ?= amd64
+MAKE ?= make
+
+%:
+	dh $@ --with python3,systemd --buildsystem=pybuild
+
+override_dh_auto_build:
+	$(MAKE) build
+
+override_dh_auto_install:
+	# Sonic specific behavior to automatically rewrite kernel dependency
+	# The kernel tends to change pretty often which is annoying because
+	# debian/kernel is static
+	if [ ! -z "$(KVERSION_SHORT)" ]; then \
+	   echo "Rewriting linux-image dependency in debian/control to $(KVERSION_SHORT)-unsigned"; \
+	   sed -Ei "s/linux-image-.+-$(ARCH).*\$$/linux-image-$(KVERSION_SHORT)-$(ARCH)-unsigned/" debian/control; \
+	fi
+	$(MAKE) install-py3 \
+	   DESTDIR=$(CURDIR)/debian/python3-$(DEB_SOURCE) \
+	   PY_INSTALL_ARGS=--install-layout=deb
+	$(MAKE) install-drivers \
+	   DESTDIR=$(CURDIR)/debian/drivers-$(DEB_SOURCE)
+	$(MAKE) install-libs \
+	   DESTDIR=$(CURDIR)/debian/$(DEB_SOURCE)-libs
+	$(MAKE) install-fs \
+	   DESTDIR=$(CURDIR)/debian/$(DEB_SOURCE)
+
+	$(MAKE) install-py3whl install-drivers install-fs \
+	   DESTDIR=$(CURDIR)/debian/$(DEB_SOURCE)-all
+
+	dh_installdirs -pdrivers-$(DEB_SOURCE)-dev /lib/modules/$(KVERSION)/$(INSTALL_MOD_DIR)
+	cp $(CURDIR)/src/Module.symvers debian/drivers-$(DEB_SOURCE)-dev/lib/modules/$(KVERSION)/$(INSTALL_MOD_DIR)/scd-Module.symvers
+
+	dh_installdirs -pdrivers-$(DEB_SOURCE)-dev /lib/modules/$(KVERSION)/build/include/scd
+	cp $(CURDIR)/src/scd.h debian/drivers-$(DEB_SOURCE)-dev/lib/modules/$(KVERSION)/build/include/scd/
+
+	dh_installdirs -pdrivers-$(DEB_SOURCE)-dev /usr/include
+	cp $(CURDIR)/lib/sfp-eeprom.h debian/drivers-$(DEB_SOURCE)-dev/usr/include/
+
+override_dh_usrlocal:
+	# NOTE: This is needed since this package has to install some files
+	# under /usr/local even though it is frown upon.
+	# Packages are only allowed to create directories where admin could put
+	# their custom hooks.
+
+override_dh_clean:
+	$(MAKE) clean
+	dh_clean
+
+override_dh_auto_test:
+	$(MAKE) test

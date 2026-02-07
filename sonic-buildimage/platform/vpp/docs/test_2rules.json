@@ -1,0 +1,19 @@
+{
+    "ACL_RULE": {
+        "TEST_IPV4|ALLOW": {
+	    "priority" : "85",
+            "SRC_IP" : "172.16.1.0/24",
+            "DST_IP" : "172.16.2.0/24",
+	    "L4_SRC_PORT_RANGE": "1024-65535",
+	    "L4_DST_PORT": "22",
+	    "IP_PROTOCOL": "6",
+            "PACKET_ACTION" : "FORWARD"
+        },
+        "TEST_IPV4|TheDrop": {
+            "priority" : "80",
+            "IP_TYPE" : "IPv4ANY",
+            "PACKET_ACTION" : "DROP"
+        }
+    }
+}
+
